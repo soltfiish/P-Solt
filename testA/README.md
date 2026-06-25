@@ -1,76 +1,95 @@
 # Test A — Ground Test Protocol (κ-substitution)
 
 Held-out, pre-registered, blind test of the claim that a κ-map predicts
-industrial element substitutes better than its own inputs. Built from scratch
-(no prior κ code or dataset existed in this repo); see `prereg.md` →
-"Reconstruction caveat" for exactly what is reconstructed and why that does
-not weaken the falsifiability.
+industrial element substitutes **better than its own inputs**. Built from
+scratch (no prior κ code or dataset existed in this repo). **v2** folds in the
+five fixes from the fix-handoff; the verdict is decided on a **fresh held-out
+set**, not the set the protocol was developed against.
 
-## Verdict: **PARTIAL**
+## Verdict (fresh held-out set): **INCONCLUSIVE**
 
-> κ_full clears every single-descriptor baseline (it beats `B3_IE` by +0.33
-> top-1, paired CI excluding 0, McNemar p<0.001 — so **κ is more than
-> ionization energy**), **but** it is statistically indistinguishable from
-> `B5_multifeature`, a naive z-scored 4-feature nearest-neighbor (Δ+0.064,
-> CI [-0.051, +0.185] **includes 0**, McNemar p=0.27). The +5pp margin over
-> B5 required by the frozen §9 rule is not cleared with CI excluding 0.
+> On the fresh set, `kappa_full` (0.326) vs `B5_star` (0.295) — a z-scored NN
+> over κ's **identical raw inputs** — gives Δ **+3.1pp**, Nadeau–Bengio CI
+> **[-11.2, +17.3]pp (includes 0)**. The **Minimum Detectable Effect is ≈20pp**,
+> far above the 5pp target, so the 44-pair fresh set is **underpowered**: this
+> is a *null of detection*, not demonstrated equivalence. The honest next step
+> is a larger fresh set, not a claim.
 
-**Supported claim:** "κ is a compact re-encoding of standard chemical
-descriptors." **Not supported:** "κ *predicts* substitution beyond standard
-descriptors." Drop "predicts."
+What *is* established, robustly and across both sets:
 
-| method | top-1 | 95% CI | top-3 |
+- **κ's geometry adds nothing over its own inputs.** `kappa_full ≈ B5_star`
+  everywhere — fresh (Δ+3.1pp, CI incl 0), full-table pool (Δ+0.6pp, CI incl 0),
+  and even in-sample dev (B5\* 0.530 ≥ κ_full 0.518). The only thing κ claims —
+  that its coordinate *geometry* beats a naive NN on the same numbers — is not
+  observed.
+- **The gates are inert patches.** gated − un-gated κ = **0.0pp**. The
+  d10/mercury/refractory gates, built from dev-set misses, do nothing
+  out-of-sample — exactly as predicted.
+- **κ ≈ the same-group floor on fresh.** κ_full 0.326 barely exceeds
+  `B0_same_group` 0.319; the periodic table alone is nearly as good.
+- κ does beat the radius-only baseline (Δ+25.7pp, CI excludes 0) and trends
+  above B3_IE (Δ+9.9pp) — but neither rescues a claim over B5\*.
+
+| method | fresh top-1 | fresh 95% CI | dev top-1 (non-decisive) |
 |---|---|---|---|
-| **kappa_full** | **0.518** | [0.391, 0.640] | 0.805 |
-| kappa_5D (equal wt) | 0.511 | [0.377, 0.642] | 0.793 |
-| kappa_2D | 0.303 | [0.189, 0.434] | 0.473 |
-| B5_multifeature | 0.454 | [0.321, 0.585] | 0.850 |
-| B0_same_group | 0.339 | [0.208, 0.472] | 0.661 |
-| B1_mendeleev | 0.301 | [0.189, 0.434] | 0.660 |
-| B3_IE | 0.189 | [0.094, 0.302] | 0.529 |
-| chance floor | 0.052 | — | — |
+| kappa_full | 0.326 | [0.198, 0.459] | 0.518 |
+| kappa_nogate | 0.326 | [0.198, 0.459] | 0.557 |
+| **B5_star** (κ's raw inputs) | **0.295** | [0.159, 0.432] | **0.530** |
+| B5_multifeature | 0.295 | [0.159, 0.432] | 0.454 |
+| B0_same_group | 0.319 | [0.182, 0.455] | 0.339 |
+| B3_IE | 0.226 | [0.114, 0.364] | 0.189 |
+| chance floor | 0.053 | — | — |
 
-(N1 random-coords 0.075, N2 random-pick 0.042, label-permutation ≈ 0.02–0.03
-for every method → **controls pass, harness does not leak**.)
+(Controls pass: label-permutation/N1/N2 ≈ chance on the fresh set → no leak.)
 
-## What the ablations settled
+## Why v2 changed the verdict from v1's "PARTIAL"
 
-- **Polarizability-vs-α (the flagged bug):** `xi_e = IE·α_fs` and `xi_e = IE`
-  give **identical** top-1 (0.511) — the fine-structure constant is an inert
-  rescale removed by local normalization. The polarizability form (0.510) adds
-  nothing either. **Confirmed empirically, not by argument.**
-- **Drop-one-axis:** dropping the magnetic axis (`xi_mag`) *raises* top-1
-  (+0.038); radius (`xi_n`) and valence (`xi_shell`) are the load-bearing axes.
-  κ_full's gates/weights add only +0.007 over equal-weight κ_5D.
-- **Misses** cluster on `xi_mag` as the axis of max disagreement and are mostly
-  adjacent same-block homologs separable by a few pm of radius (e.g. Pt→Ir
-  instead of Pd, Co→Fe instead of Ni) — see `results/misses.csv`.
+v1's k-fold CV held out *weight tuning* but not the *axis/gate design*, which
+was fixed against the development pairs — so its PARTIAL ("demonstrated
+equivalence to B5") over-claimed. v2:
+
+1. **Fresh held-out set** is the verdict; the original 53 pairs are demoted to
+   a non-decisive development set.
+2. **B5\*** uses κ's *identical raw inputs*, isolating geometry (v1's B5 gave
+   κ extra features, confounding the comparison).
+3. **Nadeau–Bengio** corrected t-test replaces pooled McNemar (which
+   double-counts overlapping folds → anticonservative); **MDE** is computed, so
+   an underpowered null is correctly labeled **INCONCLUSIVE**, not PARTIAL.
+4. **Pool sensitivity** (full-table) confirms no edge in either pool.
+
+The lesson: with 44 fresh pairs you cannot demonstrate equivalence *or* a
+5pp edge. PARTIAL requires power v1 never had.
 
 ## Reproduce
 
 ```bash
 pip install numpy pandas scipy scikit-learn
-python3 build_data.py      # re-freeze the two input CSVs (checksummed)
-python3 run_testA.py       # controls → CV → paired stats → ablations → verdict
+python3 build_data.py    # freezes element_properties + dev + fresh CSVs (checksummed)
+python3 run_testA.py     # controls → dev → fresh verdict → NB stats → sensitivity → ablations
 ```
 
-Fixed seed 1729; `RepeatedStratifiedKFold(5, 10)`; one `rank_candidates`
-interface for every method; same-block pool + local normalization for all.
+Seed 1729; `RepeatedStratifiedKFold(5,10)`; one `rank_candidates` interface for
+every method; same-block pool + local normalization for all.
 
 ## Files
 
-- `prereg.md` — frozen §12 block + §9 decision rule (committed before results).
-- `build_data.py` → `data/element_properties.csv`, `data/substitution_pairs.csv`
-  (+ `CHECKSUMS.txt`). Provenance/limitations in the file header.
+- `prereg.md`, `prereg_v2.md` — frozen pre-registration (committed before the
+  respective results). v2 freezes the fresh-set §9 rule and the four-outcome
+  decision (PASS / PARTIAL / INCONCLUSIVE / FAIL).
+- `build_data.py` → `data/{element_properties, substitution_pairs,
+  substitution_pairs_fresh}.csv` + `CHECKSUMS.txt`. Provenance & limitations in
+  the file header.
 - `run_testA.py` — the harness.
 - `results/` — `results_summary.csv`, `paired_stats.csv`, `controls.csv`,
   `misses.csv`, `ablations.csv`, `verdict.md`.
 
-## Honest scope (from `prereg.md`)
+## Honest scope
 
 The test can only support "**recovers expert substitution judgments**," never
-"predicts physical reality," because labels and methods are all functions of
-atomic properties. The primary metric covers **53 sourced, in-pool pairs**;
-7 cross-block pairs are unscoreable under the mandated same-block harness and
-5 unsourced pairs are excluded — all reported separately and applied
-identically to every method.
+"predicts physical reality" — labels and methods are all functions of atomic
+properties. The κ axes, Mendeleev scale, and pair citations are reconstructions
+(source *categories*, not verified DOIs); the fresh-set assembler had seen
+dev-set misses, so it is not perfectly κ-naive (ideal: a zero-κ-exposure
+sourcer). All caveats are in `prereg_v2.md`. To push toward a decisive verdict,
+the single highest-value step is a larger, DOI-verified, κ-naive fresh set
+(target: MDE ≤ 5pp).

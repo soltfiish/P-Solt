@@ -1,9 +1,9 @@
 control,value,note
-chance_floor,0.0516,1/mean(pool size)
-N2_random_pick_expected,0.0583,E[|accepted∩pool|/|pool|]
-N1_random_coords_top1_mean,0.0560,CV mean top-1
-N2_random_pick_top1_mean,0.0473,CV mean top-1
-label_perm_kappa_full_top1,0.0313,mean over 5 permutations (expect ≈ chance)
-label_perm_B3_IE_top1,0.0190,mean over 5 permutations (expect ≈ chance)
-label_perm_B5_multifeature_top1,0.0189,mean over 5 permutations (expect ≈ chance)
-label_perm_B0_same_group_top1,0.0264,mean over 5 permutations (expect ≈ chance)
+fresh:chance_floor,0.0531,1/mean(pool size)
+fresh:N2_expected,0.0531,E[|acc∩pool|/|pool|]
+fresh:N1_random_coords_top1,0.0450,CV mean top-1
+fresh:N2_random_pick_top1,0.0669,CV mean top-1
+fresh:label_perm_kappa_full,0.0046,mean/5 perms (expect ≈ chance)
+fresh:label_perm_B3_IE,0.0090,mean/5 perms (expect ≈ chance)
+fresh:label_perm_B5_star,0.0046,mean/5 perms (expect ≈ chance)
+fresh:label_perm_B0_same_group,0.0137,mean/5 perms (expect ≈ chance)

@@ -1,10 +1,10 @@
 ablation,top1_mean,note
-xi_e_def:alpha,0.5109,xi_e=IE*alpha_fs (14-15 default)
-xi_e_def:rawIE,0.5109,xi_e=IE (alpha removed by normalization)
-xi_e_def:poly,0.5104,xi_e=IE/polarizability (12-13 form)
-dropaxis:none(5D ref),0.5109,all 5 axes equal weight
-dropaxis:kappa_xi_e,0.4909,Δacc vs 5D = -0.020
-dropaxis:kappa_xi_n,0.4727,Δacc vs 5D = -0.038
-dropaxis:kappa_xi_mag,0.5487,Δacc vs 5D = +0.038
-dropaxis:kappa_xi_bond,0.4916,Δacc vs 5D = -0.019
-dropaxis:kappa_xi_shell,0.4738,Δacc vs 5D = -0.037
+xi_e_def:alpha,0.3172,xi_e=IE*alpha_fs (14-15 default)
+xi_e_def:rawIE,0.3172,xi_e=IE (alpha removed by normalization)
+xi_e_def:poly,0.3864,xi_e=IE/polarizability (12-13 form)
+dropaxis:none(5D ref),0.3172,all 5 axes equal weight
+dropaxis:kappa_xi_e,0.4094,Δacc vs 5D = +0.092
+dropaxis:kappa_xi_n,0.3164,Δacc vs 5D = -0.001
+dropaxis:kappa_xi_mag,0.2492,Δacc vs 5D = -0.068
+dropaxis:kappa_xi_bond,0.2719,Δacc vs 5D = -0.045
+dropaxis:kappa_xi_shell,0.2719,Δacc vs 5D = -0.045

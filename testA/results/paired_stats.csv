@@ -1,7 +1,8 @@
-baseline,mean_diff(kappa_full-baseline),ci_lo,ci_hi,mcnemar_p,odds_ratio(kf/base),kf_only_correct,base_only_correct,kf_wins_ci_excl_0
-B0_same_group,+0.1774,+0.0340,+0.3151,0.0192,3.444,15,4,yes
-B1_mendeleev,+0.2151,+0.0491,+0.3774,0.0146,3.000,19,6,yes
-B2_electronegativity,+0.3283,+0.1623,+0.4849,0.0005,4.455,24,5,yes
-B3_IE,+0.3283,+0.1679,+0.4849,0.0003,5.222,23,4,yes
-B4_radius,+0.3094,+0.1528,+0.4623,0.0005,5.000,22,4,yes
-B5_multifeature,+0.0642,-0.0509,+0.1849,0.2668,2.111,9,4,no
+baseline,mean_diff,nb_ci_lo,nb_ci_hi,nb_t,nb_p,mde,mcnemar_p_sidebar,odds_ratio,ci_excl_0
+B0_same_group,0.0064,-0.2365,0.2493,0.053,0.9581,0.3455,1.0000,1.105,False
+B1_mendeleev,0.0297,-0.2170,0.2764,0.242,0.8097,0.3509,0.8238,1.211,False
+B2_electronegativity,0.1433,-0.0189,0.3055,1.776,0.0820,0.2307,0.0923,3.000,False
+B3_IE,0.0992,-0.0925,0.2908,1.040,0.3034,0.2726,0.3018,1.909,False
+B4_radius,0.2575,0.0928,0.4222,3.141,0.0029,0.2343,0.0042,5.800,True
+B5_multifeature,0.0306,-0.1260,0.1871,0.392,0.6966,0.2227,0.7539,1.444,False
+B5_star,0.0308,-0.1115,0.1732,0.435,0.6653,0.2025,0.7539,1.444,False

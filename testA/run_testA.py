@@ -515,7 +515,7 @@ def summarize(pairs, methods, collect_misses=False, tag=""):
 def paired_table(summ, ph, ids, meta, ref="kappa_full"):
     rows = []
     ref_bin = per_pair_binary(ph[ref], ids)
-    for b in BASELINES:
+    for b in [x for x in BASELINES if x in summ]:
         diffs = [summ[ref]["fold_acc"][j] - summ[b]["fold_acc"][j]
                  for j in range(len(summ[ref]["fold_acc"]))]
         mean, ci, tstat, p, se, mde = nb_corrected(diffs, meta["n_train"], meta["n_test"])
