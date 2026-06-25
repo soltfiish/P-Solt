@@ -1,0 +1,66 @@
+pair_id,source_symbol,accepted_substitutes,application,block,source_citation,sourced
+p01,Pt,Pd,autocatalyst,d,USGS MCS Platinum-group metals,True
+p02,Pd,Pt,autocatalyst,d,USGS MCS Platinum-group metals,True
+p03,Rh,Pd|Pt,autocatalyst (3-way),d,USGS MCS Platinum-group metals,True
+p04,Pt,Pd|Ir,electrolyser catalyst,d,DOE Critical Materials Strategy 2011,True
+p05,Ir,Ru,PEM anode catalyst,d,DOE Hydrogen Program review,True
+p06,Ru,Ir,electrocatalyst,d,USGS MCS Platinum-group metals,True
+p07,Nd,Pr,NdFeB permanent magnet,f,DOE Critical Materials Strategy 2011,True
+p08,Pr,Nd,permanent magnet,f,DOE Critical Materials Strategy 2011,True
+p09,Dy,Tb,magnet HT coercivity,f,DOE Critical Materials Strategy 2011,True
+p10,Tb,Dy,magnet HT coercivity,f,DOE Critical Materials Strategy 2011,True
+p11,Sm,Nd,SmCo vs NdFeB magnet,f,USGS MCS Rare Earths,True
+p12,Eu,Tb,phosphor activator,f,EU CRM 2020 report,True
+p13,Y,Gd,phosphor / garnet host,d,EU CRM 2020 report,True
+p14,La,Ce,FCC catalyst / mischmetal,f,USGS MCS Rare Earths,True
+p15,Ce,La,polishing / mischmetal,f,USGS MCS Rare Earths,True
+p16,Co,Ni,Li-ion cathode,d,USGS MCS Cobalt,True
+p17,Co,Ni|Mn,NMC cathode,d,DOE Critical Materials 2010,True
+p18,Ni,Co,battery cathode,d,USGS MCS Nickel,True
+p19,Li,Na,rechargeable battery,s,USGS MCS Lithium,True
+p20,Ta,Nb,electrolytic capacitor,d,USGS MCS Tantalum,True
+p21,Nb,Ta,capacitor / HSLA steel,d,USGS MCS Niobium,True
+p22,Ta,Nb|Hf,superalloy / carbide,d,USGS MCS Tantalum,True
+p23,W,Mo,carbide / high-temp,d,USGS MCS Tungsten,True
+p24,Mo,W,alloy steel / catalyst,d,USGS MCS Molybdenum,True
+p25,Re,W|Mo,superalloy / refractory,d,USGS MCS Rhenium,True
+p26,In,Ga,transparent conductor,p,USGS MCS Indium,True
+p27,Ga,In,compound semiconductor,p,USGS MCS Gallium,True
+p28,Ge,Si,infrared optics / semi,p,USGS MCS Germanium,True
+p29,Si,Ge,semiconductor,p,USGS MCS Silicon,True
+p30,Ga,Al,LED / nitride substrate,p,EU CRM 2017 report,True
+p31,V,Nb,microalloying steel,d,USGS MCS Vanadium,True
+p32,V,Cr,alloy steel,d,USGS MCS Vanadium,True
+p33,Cr,V,stainless / hardening,d,USGS MCS Chromium,True
+p34,Hf,Zr,nuclear / refractory,d,USGS MCS Hafnium,True
+p35,Zr,Hf|Ti,alloy / cladding,d,USGS MCS Zirconium,True
+p36,Sr,Ba,ferrite magnet / pyro,s,USGS MCS Strontium,True
+p37,Ba,Sr,drilling / ferrite,s,USGS MCS Barium,True
+p38,Be,Al,lightweight alloy,s,USGS MCS Beryllium,True
+p39,Mg,Al,lightweight structural,s,USGS MCS Magnesium,True
+p40,Al,Mg,lightweight structural,p,USGS MCS Aluminum,True
+p41,Sb,Bi,flame retardant / alloy,p,USGS MCS Antimony,True
+p42,Bi,Sb|Pb,low-melt / free-cut alloy,p,USGS MCS Bismuth,True
+p43,Sn,Bi,solder (Pb-free),p,EU CRM 2020 report,True
+p44,Te,Se,thin-film PV / alloy,p,USGS MCS Tellurium,True
+p45,Se,Te,pigment / semiconductor,p,USGS MCS Selenium,True
+p46,Ag,Cu,electrical conductor,d,USGS MCS Silver,True
+p47,Au,Pd,wire bonding / contact,d,USGS MCS Gold,True
+p48,Cu,Al,electrical conductor,d,USGS MCS Copper,True
+p49,Rb,Cs,specialty / research,s,USGS MCS Rubidium,True
+p50,Cs,Rb|K,drilling fluid / catalyst,s,USGS MCS Cesium,True
+p51,Gd,Dy,MRI contrast / magnet,f,EU CRM 2020 report,True
+p52,Er,Yb,fiber laser dopant,f,named review (RE photonics),True
+p53,Yb,Er,laser / dopant,f,named review (RE photonics),True
+p54,Ho,Dy,magnetostrictive / dopant,f,named review (RE),True
+p55,Lu,Y,scintillator host,f,named review (scintillators),True
+p56,Os,Ir,hard alloy / electrode,d,USGS MCS Platinum-group metals,True
+p57,Ti,Al,lightweight structural,d,USGS MCS Titanium,True
+p58,Mn,Fe,steel / battery additive,d,USGS MCS Manganese,True
+p59,K,Na,fertilizer / chemical,s,USGS MCS Potash,True
+p60,P,As,n-type dopant,p,named review (semiconductors),True
+p61,As,P|Sb,III-V dopant / alloy,p,general chemistry analogy,False
+p62,Tl,In,"specialty (toxic, limited)",p,weak analogy,False
+p63,Cd,Zn,coating / pigment,d,USGS MCS Cadmium (declining),False
+p64,Pm,Sm,radio / niche,f,no industrial substitution,False
+p65,Tc,Re,no civilian supply,d,analogy only,False
