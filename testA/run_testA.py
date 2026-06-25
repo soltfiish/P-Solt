@@ -1,47 +1,47 @@
 #!/usr/bin/env python3
 """
-run_testA.py -- Ground Test Protocol for the kappa-substitution claim.
+run_testA.py -- Ground Test Protocol for the kappa-substitution claim (v2).
 
-One script, fixed seed, every method behind a common
-    rank_candidates(source, pool, ...) -> ranked list[symbol]
-interface (prereg §3, §4). Implements:
+v2 folds in the five fixes from the fix-handoff:
+  FIX 1  fresh held-out set is the VERDICT; the original set is demoted to a
+         non-decisive DEVELOPMENT set (k-fold holds out weight tuning, not the
+         axis/gate *design*). Un-gated kappa is run alongside gated.
+  FIX 2  B5_star: z-scored NN over the IDENTICAL raw inputs feeding kappa's
+         axes -> isolates geometry (the only thing kappa claims). PASS keys on
+         beating B5_star, not B5.
+  FIX 3  Nadeau-Bengio corrected resampled t-test (variance-corrected for the
+         overlapping CV folds) is the headline paired test; pooled McNemar is
+         demoted to a descriptive sidebar. Minimum Detectable Effect (MDE) is
+         computed; an underpowered null is INCONCLUSIVE, not PARTIAL.
+  FIX 4  candidate pool is pre-registered (same-block) but a full-table
+         sensitivity check is run and reported.
+  FIX 5  decision rule (S9) updated: verdict on fresh set, PASS keys on
+         B5_star, fourth outcome INCONCLUSIVE, gated-vs-ungated both reported.
 
-  * shared harness: same-block candidate pool, local (pool) normalization,
-    plain weighted Euclidean, lower-Z tie-break  (§4)
-  * methods: kappa_2D / kappa_5D / kappa_full + baselines B0..B5 + controls
-    N1/N2  (§3)
-  * RepeatedStratifiedKFold(5,10) stratified by block, train-fold-only
-    hyperparameter selection for kappa_full  (§5.3)
-  * negative controls run FIRST: label permutation, random coords, random
-    pick, chance floor  (§7)
-  * paired bootstrap CIs, McNemar  (§6)
-  * ablations: polarizability-vs-alpha xi_e, drop-one-axis  (§8)
-  * deliverables: results_summary.csv, paired_stats.csv, controls.csv,
-    misses.csv, ablations.csv, verdict.md  (§11)
-
-Reads ONLY the frozen CSVs in data/. No CLOSE / no model-metric grading
-anywhere. The verdict follows the frozen §9 rule -- it is whatever it is.
+Reads ONLY the frozen CSVs in data/. No CLOSE / no model-metric grading.
 """
 
 import csv
 import math
 import os
-import random
 from collections import defaultdict
 
 import numpy as np
+from scipy.stats import t as tdist, binomtest
 from sklearn.model_selection import RepeatedStratifiedKFold
 
 # ---------------------------------------------------------------------------
-# Frozen config (prereg §12)
+# Frozen config (prereg §12 / prereg_v2 §12b)
 # ---------------------------------------------------------------------------
 SEED = 1729
 N_SPLITS = 5
 N_REPEATS = 10
+ALPHA = 0.05
+POWER = 0.80
 ALPHA_FS = 7.2973525693e-3
-GATE_DISCOUNT = 0.5          # fixed, not tuned
+GATE_DISCOUNT = 0.5
 WEIGHT_GRID = [0.0, 0.5, 1.0, 2.0]
-MARGIN_PP = 5.0             # meaningful margin over B5, percentage points
+MARGIN_PP = 5.0
 N_BOOT = 10000
 KAPPA_AXES = ["kappa_xi_e", "kappa_xi_n", "kappa_xi_mag",
               "kappa_xi_bond", "kappa_xi_shell"]
@@ -50,9 +50,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(HERE, "data")
 RESULTS = os.path.join(HERE, "results")
 
-# d10-closed-shell species (ns2 (n-1)d10 at the common industrial state)
 D10_SET = {"Zn", "Cd", "Hg", "Cu", "Ag", "Au", "Ga", "In", "Ge", "Sn"}
-# refractory / early-d transition metals
 REFRACTORY_SET = {"Ti", "V", "Cr", "Zr", "Nb", "Mo", "Hf", "Ta", "W", "Re"}
 
 
@@ -60,20 +58,16 @@ REFRACTORY_SET = {"Ti", "V", "Cr", "Zr", "Nb", "Mo", "Hf", "Ta", "W", "Re"}
 # Load frozen data
 # ---------------------------------------------------------------------------
 def load_elements():
-    path = os.path.join(DATA, "element_properties.csv")
     el = {}
-    with open(path) as f:
+    with open(os.path.join(DATA, "element_properties.csv")) as f:
         for row in csv.DictReader(f):
             sym = row["symbol"]
             def num(k):
                 v = row[k]
                 return None if v == "" else float(v)
             el[sym] = {
-                "Z": int(row["Z"]),
-                "symbol": sym,
-                "block": row["block"],
-                "group": int(row["group"]),
-                "period": int(row["period"]),
+                "Z": int(row["Z"]), "symbol": sym, "block": row["block"],
+                "group": int(row["group"]), "period": int(row["period"]),
                 "mendeleev_number": float(row["mendeleev_number"]),
                 "IE1_eV": num("IE1_eV"),
                 "polarizability_A3": num("polarizability_A3"),
@@ -86,17 +80,14 @@ def load_elements():
     return el
 
 
-def load_pairs():
-    path = os.path.join(DATA, "substitution_pairs.csv")
+def load_pairs(fname):
     pairs = []
-    with open(path) as f:
+    with open(os.path.join(DATA, fname)) as f:
         for row in csv.DictReader(f):
             pairs.append({
-                "pair_id": row["pair_id"],
-                "source": row["source_symbol"],
+                "pair_id": row["pair_id"], "source": row["source_symbol"],
                 "accepted": row["accepted_substitutes"].split("|"),
-                "application": row["application"],
-                "block": row["block"],
+                "application": row["application"], "block": row["block"],
                 "citation": row["source_citation"],
                 "sourced": row["sourced"].strip().lower() == "true",
             })
@@ -104,33 +95,29 @@ def load_pairs():
 
 
 EL = load_elements()
-PAIRS_ALL = load_pairs()
 
 
 def radius_of(sym):
     e = EL[sym]
-    r = e["ionic_radius_common_pm"]
-    return r if r is not None else e["atomic_radius_pm"]
+    return e["ionic_radius_common_pm"] if e["ionic_radius_common_pm"] is not None \
+        else e["atomic_radius_pm"]
 
 
 # ---------------------------------------------------------------------------
-# Shared harness (§4)
+# Shared harness (§4) -- pool mode is a pre-registered knob (Fix 4)
 # ---------------------------------------------------------------------------
-def candidate_pool(source):
-    """Same-block minus source; full-table fallback if pool < 5. Identical
-    rule for every method."""
-    blk = EL[source]["block"]
-    pool = [s for s in EL if EL[s]["block"] == blk and s != source]
-    if len(pool) < 5:
+def candidate_pool(source, mode="block"):
+    if mode == "full":
         pool = [s for s in EL if s != source]
+    else:
+        blk = EL[source]["block"]
+        pool = [s for s in EL if EL[s]["block"] == blk and s != source]
+        if len(pool) < 5:
+            pool = [s for s in EL if s != source]
     return sorted(pool, key=lambda s: EL[s]["Z"])
 
 
 def kappa_axis_value(sym, axis, xi_e_mode="alpha"):
-    """Return the raw (pre-normalization) value of a kappa axis.
-    xi_e_mode: 'alpha' -> IE1*alpha_fs (default, 14-15 text);
-               'poly'  -> IE1/polarizability (12-13 form, ablation only);
-               'rawIE' -> IE1 (to show alpha is an inert constant)."""
     e = EL[sym]
     if axis == "kappa_xi_e":
         if xi_e_mode == "poly":
@@ -150,7 +137,6 @@ def kappa_axis_value(sym, axis, xi_e_mode="alpha"):
 
 
 def local_minmax(values):
-    """Return a transform normalizing over the given values (min-max)."""
     lo, hi = min(values), max(values)
     span = hi - lo
     if span == 0:
@@ -160,28 +146,20 @@ def local_minmax(values):
 
 def kappa_rank(source, pool, axes, weights, xi_e_mode="alpha",
                gates=None, return_axisgap=False):
-    """Weighted-Euclidean kappa ranking with optional gates.
-    Local (pool ∪ source) min-max normalization per axis."""
     gates = gates or {}
     members = pool + [source]
-    norms = {}
-    for a in axes:
-        vals = [kappa_axis_value(m, a, xi_e_mode) for m in members]
-        norms[a] = local_minmax(vals)
+    norms = {a: local_minmax([kappa_axis_value(m, a, xi_e_mode) for m in members])
+             for a in axes}
     s_vec = {a: norms[a](kappa_axis_value(source, a, xi_e_mode)) for a in axes}
-
-    scored = []
-    axisgap = {}
+    scored, axisgap = [], {}
     for c in pool:
         c_vec = {a: norms[a](kappa_axis_value(c, a, xi_e_mode)) for a in axes}
-        d2 = 0.0
-        gaps = {}
+        d2, gaps = 0.0, {}
         for a in axes:
             diff = s_vec[a] - c_vec[a]
             gaps[a] = abs(diff)
             d2 += weights.get(a, 1.0) * diff * diff
         dist = math.sqrt(d2)
-        # gates: multiplicative discount when source & candidate co-class
         if gates.get("d10") and source in D10_SET and c in D10_SET:
             dist *= GATE_DISCOUNT
         if gates.get("mercury") and source == "Hg" and c in D10_SET:
@@ -192,172 +170,141 @@ def kappa_rank(source, pool, axes, weights, xi_e_mode="alpha",
         axisgap[c] = gaps
     scored.sort()
     ranked = [c for _, _, c in scored]
-    if return_axisgap:
-        return ranked, axisgap
-    return ranked
+    return (ranked, axisgap) if return_axisgap else ranked
 
 
 def nn_rank_scalar(source, pool, valfn):
-    """Nearest neighbour on a single scalar; lower-Z tie-break."""
     sv = valfn(source)
-    scored = [(abs(valfn(c) - sv), EL[c]["Z"], c) for c in pool]
-    scored.sort()
+    scored = sorted((abs(valfn(c) - sv), EL[c]["Z"], c) for c in pool)
     return [c for _, _, c in scored]
 
 
-# ---------------------------------------------------------------------------
-# Method registry  (§3) -- every method returns a ranked list of symbols
-# ---------------------------------------------------------------------------
-def m_kappa_2D(source, pool, ctx):
-    axes = ["kappa_xi_e", "kappa_xi_n"]
-    return kappa_rank(source, pool, axes, {a: 1.0 for a in axes},
-                      xi_e_mode=ctx.get("xi_e_mode", "alpha"))
-
-
-def m_kappa_5D(source, pool, ctx):
-    return kappa_rank(source, pool, KAPPA_AXES, {a: 1.0 for a in KAPPA_AXES},
-                      xi_e_mode=ctx.get("xi_e_mode", "alpha"))
-
-
-def m_kappa_full(source, pool, ctx):
-    hp = ctx["hp"]
-    axes = ctx.get("axes", KAPPA_AXES)
-    return kappa_rank(source, pool, axes, hp["weights"],
-                      xi_e_mode=ctx.get("xi_e_mode", "alpha"),
-                      gates=hp["gates"])
-
-
-def m_B0_same_group(source, pool, ctx):
-    sg, sp = EL[source]["group"], EL[source]["period"]
-    scored = []
-    for c in pool:
-        cg, cp = EL[c]["group"], EL[c]["period"]
-        scored.append((0 if cg == sg else 1, abs(cp - sp),
-                       abs(cg - sg), EL[c]["Z"], c))
-    scored.sort()
-    return [t[-1] for t in scored]
-
-
-def m_B1_mendeleev(source, pool, ctx):
-    return nn_rank_scalar(source, pool, lambda s: EL[s]["mendeleev_number"])
-
-
-def m_B2_electronegativity(source, pool, ctx):
-    return nn_rank_scalar(source, pool, lambda s: EL[s]["electronegativity_pauling"])
-
-
-def m_B3_IE(source, pool, ctx):
-    return nn_rank_scalar(source, pool, lambda s: EL[s]["IE1_eV"])
-
-
-def m_B4_radius(source, pool, ctx):
-    return nn_rank_scalar(source, pool, radius_of)
-
-
-def m_B5_multifeature(source, pool, ctx):
-    feats = [
-        lambda s: EL[s]["electronegativity_pauling"],
-        lambda s: EL[s]["IE1_eV"],
-        radius_of,
-        lambda s: EL[s]["valence_electrons"],
-    ]
+def zscore_nn(source, pool, featfns):
     members = pool + [source]
     transforms = []
-    for fn in feats:
+    for fn in featfns:
         vals = np.array([fn(m) for m in members], dtype=float)
         mu, sd = vals.mean(), vals.std()
         transforms.append((fn, mu, sd if sd > 0 else 1.0))
     s_vec = np.array([(fn(source) - mu) / sd for fn, mu, sd in transforms])
-    scored = []
-    for c in pool:
-        c_vec = np.array([(fn(c) - mu) / sd for fn, mu, sd in transforms])
-        scored.append((float(np.linalg.norm(s_vec - c_vec)), EL[c]["Z"], c))
-    scored.sort()
+    scored = sorted((float(np.linalg.norm(
+        np.array([(fn(c) - mu) / sd for fn, mu, sd in transforms]) - s_vec)),
+        EL[c]["Z"], c) for c in pool)
     return [c for _, _, c in scored]
 
 
-def m_N1_random_coords(source, pool, ctx):
-    rng = ctx["rng"]
-    coords = ctx.setdefault("_n1coords", {})
-    dim = 5
-    def vec(s):
-        if s not in coords:
-            coords[s] = rng.normal(size=dim)
-        return coords[s]
-    sv = vec(source)
-    scored = [(float(np.linalg.norm(vec(c) - sv)), EL[c]["Z"], c) for c in pool]
-    scored.sort()
-    return [c for _, _, c in scored]
+# ---------------------------------------------------------------------------
+# Methods (§3) -- common rank_candidates interface
+# ---------------------------------------------------------------------------
+def m_kappa_2D(s, p, ctx):
+    ax = ["kappa_xi_e", "kappa_xi_n"]
+    return kappa_rank(s, p, ax, {a: 1.0 for a in ax}, ctx.get("xi_e_mode", "alpha"))
 
+def m_kappa_5D(s, p, ctx):
+    return kappa_rank(s, p, KAPPA_AXES, {a: 1.0 for a in KAPPA_AXES},
+                      ctx.get("xi_e_mode", "alpha"))
 
-def m_N2_random_pick(source, pool, ctx):
-    rng = ctx["rng"]
-    return list(rng.permutation(pool))
+def m_kappa_full(s, p, ctx):       # gated, weights+gates train-selected
+    hp = ctx["hp_gated"]
+    return kappa_rank(s, p, ctx.get("axes", KAPPA_AXES), hp["weights"],
+                      ctx.get("xi_e_mode", "alpha"), gates=hp["gates"])
+
+def m_kappa_nogate(s, p, ctx):     # gates forced off, weights train-selected
+    hp = ctx["hp_nogate"]
+    return kappa_rank(s, p, ctx.get("axes", KAPPA_AXES), hp["weights"],
+                      ctx.get("xi_e_mode", "alpha"), gates={})
+
+def m_B0_same_group(s, p, ctx):
+    sg, sp_ = EL[s]["group"], EL[s]["period"]
+    return [t[-1] for t in sorted(
+        (0 if EL[c]["group"] == sg else 1, abs(EL[c]["period"] - sp_),
+         abs(EL[c]["group"] - sg), EL[c]["Z"], c) for c in p)]
+
+def m_B1_mendeleev(s, p, ctx):
+    return nn_rank_scalar(s, p, lambda x: EL[x]["mendeleev_number"])
+
+def m_B2_electronegativity(s, p, ctx):
+    return nn_rank_scalar(s, p, lambda x: EL[x]["electronegativity_pauling"])
+
+def m_B3_IE(s, p, ctx):
+    return nn_rank_scalar(s, p, lambda x: EL[x]["IE1_eV"])
+
+def m_B4_radius(s, p, ctx):
+    return nn_rank_scalar(s, p, radius_of)
+
+def m_B5_multifeature(s, p, ctx):
+    return zscore_nn(s, p, [
+        lambda x: EL[x]["electronegativity_pauling"],
+        lambda x: EL[x]["IE1_eV"], radius_of,
+        lambda x: EL[x]["valence_electrons"]])
+
+def m_B5_star(s, p, ctx):
+    # IDENTICAL raw inputs to kappa's 5 axes (Fix 2): isolates geometry.
+    return zscore_nn(s, p, [
+        lambda x: EL[x]["IE1_eV"],                  # -> xi_e (alpha is inert)
+        lambda x: EL[x]["atomic_radius_pm"],        # -> xi_n
+        lambda x: EL[x]["unpaired_electrons"],      # -> xi_mag
+        lambda x: EL[x]["electronegativity_pauling"],  # -> xi_bond
+        lambda x: EL[x]["valence_electrons"]])      # -> xi_shell
+
+def m_N1_random_coords(s, p, ctx):
+    rng, coords = ctx["rng"], ctx.setdefault("_n1coords", {})
+    def vec(x):
+        if x not in coords:
+            coords[x] = rng.normal(size=5)
+        return coords[x]
+    sv = vec(s)
+    return [c for _, _, c in sorted(
+        (float(np.linalg.norm(vec(c) - sv)), EL[c]["Z"], c) for c in p)]
+
+def m_N2_random_pick(s, p, ctx):
+    return list(ctx["rng"].permutation(p))
 
 
 METHODS = {
-    "kappa_2D": m_kappa_2D,
-    "kappa_5D": m_kappa_5D,
-    "kappa_full": m_kappa_full,
-    "B0_same_group": m_B0_same_group,
-    "B1_mendeleev": m_B1_mendeleev,
-    "B2_electronegativity": m_B2_electronegativity,
-    "B3_IE": m_B3_IE,
-    "B4_radius": m_B4_radius,
-    "B5_multifeature": m_B5_multifeature,
-    "N1_random_coords": m_N1_random_coords,
-    "N2_random_pick": m_N2_random_pick,
+    "kappa_full": m_kappa_full, "kappa_nogate": m_kappa_nogate,
+    "kappa_5D": m_kappa_5D, "kappa_2D": m_kappa_2D,
+    "B0_same_group": m_B0_same_group, "B1_mendeleev": m_B1_mendeleev,
+    "B2_electronegativity": m_B2_electronegativity, "B3_IE": m_B3_IE,
+    "B4_radius": m_B4_radius, "B5_multifeature": m_B5_multifeature,
+    "B5_star": m_B5_star,
+    "N1_random_coords": m_N1_random_coords, "N2_random_pick": m_N2_random_pick,
 }
 BASELINES = ["B0_same_group", "B1_mendeleev", "B2_electronegativity",
-             "B3_IE", "B4_radius", "B5_multifeature"]
+             "B3_IE", "B4_radius", "B5_multifeature", "B5_star"]
+SINGLE_DESCR = ["B0_same_group", "B1_mendeleev", "B2_electronegativity",
+                "B3_IE", "B4_radius"]
+KAPPA_METHODS = {"kappa_full", "kappa_nogate"}
 
 
-# ---------------------------------------------------------------------------
-# Scoring helpers
-# ---------------------------------------------------------------------------
 def topk_hit(ranked, accepted_set, k):
     return int(any(p in accepted_set for p in ranked[:k]))
 
-
 def near_hit(pred, accepted_set):
-    """Neutral soft metric (NOT kappa-distance): rank-1 prediction and some
-    accepted answer share a group OR |Δ ionic radius| < 15 pm."""
-    pg = EL[pred]["group"]
-    pr = radius_of(pred)
-    for a in accepted_set:
-        if EL[a]["group"] == pg:
-            return 1
-        if abs(radius_of(a) - pr) < 15:
-            return 1
-    return 0
+    pg, pr = EL[pred]["group"], radius_of(pred)
+    return int(any(EL[a]["group"] == pg or abs(radius_of(a) - pr) < 15
+                   for a in accepted_set))
 
 
 # ---------------------------------------------------------------------------
-# kappa_full hyperparameter selection -- TRAIN FOLD ONLY (§5.3)
+# Hyperparameter selection -- TRAIN FOLD ONLY (§5.3)
 # ---------------------------------------------------------------------------
 def train_top1(train_pairs, weights, gates, xi_e_mode="alpha"):
-    hits = 0
-    for p in train_pairs:
-        ranked = kappa_rank(p["source"], p["pool"], KAPPA_AXES, weights,
-                            xi_e_mode=xi_e_mode, gates=gates)
-        hits += topk_hit(ranked, set(p["accepted"]), 1)
+    hits = sum(topk_hit(kappa_rank(p["source"], p["pool"], KAPPA_AXES, weights,
+                                   xi_e_mode, gates=gates), set(p["accepted"]), 1)
+               for p in train_pairs)
     return hits / len(train_pairs)
 
-
-def select_hyperparams(train_pairs, xi_e_mode="alpha"):
-    """Frozen forward rule: gates included iff they strictly raise train-fold
-    top-1; then one coordinate-ascent pass over axis weights. No test fold is
-    ever consulted."""
+def select_hyperparams(train_pairs, xi_e_mode="alpha", allow_gates=True):
     gates = {"d10": False, "mercury": False, "refractory": False}
     weights = {a: 1.0 for a in KAPPA_AXES}
     base = train_top1(train_pairs, weights, gates, xi_e_mode)
-    # gates
-    for g in ["d10", "mercury", "refractory"]:
-        trial = dict(gates); trial[g] = True
-        if train_top1(train_pairs, weights, trial, xi_e_mode) > base:
-            gates = trial
-            base = train_top1(train_pairs, weights, gates, xi_e_mode)
-    # axis weights (one coordinate-ascent pass)
+    if allow_gates:
+        for g in ["d10", "mercury", "refractory"]:
+            trial = dict(gates); trial[g] = True
+            if train_top1(train_pairs, weights, trial, xi_e_mode) > base:
+                gates = trial
+                base = train_top1(train_pairs, weights, gates, xi_e_mode)
     for a in KAPPA_AXES:
         best_w, best_s = weights[a], base
         for w in WEIGHT_GRID:
@@ -365,429 +312,438 @@ def select_hyperparams(train_pairs, xi_e_mode="alpha"):
             s = train_top1(train_pairs, trial, gates, xi_e_mode)
             if s > best_s:
                 best_s, best_w = s, w
-        weights[a] = best_w
-        base = best_s
+        weights[a], base = best_w, best_s
     return {"weights": weights, "gates": gates}
 
 
 # ---------------------------------------------------------------------------
-# Scoreability: a pair is in-pool iff ≥1 accepted answer is in the source pool
-# (method-independent harness-scope filter, applied identically to all)
+# Pair annotation + scoreability
 # ---------------------------------------------------------------------------
-def annotate_pairs(pairs):
+def annotate_pairs(pairs, mode="block"):
     out = []
     for p in pairs:
-        pool = candidate_pool(p["source"])
-        p = dict(p)
-        p["pool"] = pool
-        p["in_pool"] = any(a in pool for a in p["accepted"])
-        out.append(p)
+        q = dict(p); q["pool"] = candidate_pool(p["source"], mode)
+        q["in_pool"] = any(a in q["pool"] for a in p["accepted"])
+        out.append(q)
     return out
+
+def primary_subset(annotated):
+    return [p for p in annotated if p["sourced"] and p["in_pool"]]
 
 
 # ---------------------------------------------------------------------------
-# Main cross-validated evaluation (§5)
+# Cross-validated evaluation (§5)
 # ---------------------------------------------------------------------------
 def run_cv(eval_pairs, methods=None, xi_e_mode="alpha", axes=None, seed=SEED,
            collect_misses=False):
-    """Returns:
-      fold_acc[method] -> list of 50 per-fold top-1 accuracies
-      fold_acc3, fold_near similarly
-      pair_hits[method][pair_id] -> list of per-repeat top-1 hits (held-out)
-      misses (optional)
-    """
     methods = methods or list(METHODS)
     rng = np.random.default_rng(seed)
-    ctx_persistent = {m: {} for m in methods}  # for N1 fixed coords
-
+    persistent = {m: {} for m in methods}
     blocks = [p["block"] for p in eval_pairs]
     idx = np.arange(len(eval_pairs))
     rskf = RepeatedStratifiedKFold(n_splits=N_SPLITS, n_repeats=N_REPEATS,
                                    random_state=seed)
-
     fold_acc = {m: [] for m in methods}
     fold_acc3 = {m: [] for m in methods}
     fold_near = {m: [] for m in methods}
     pair_hits = {m: defaultdict(list) for m in methods}
-    misses = []
+    test_sizes, train_sizes, misses = [], [], []
 
-    for train_idx, test_idx in rskf.split(idx, blocks):
-        train_pairs = [eval_pairs[i] for i in train_idx]
-        test_pairs = [eval_pairs[i] for i in test_idx]
-        hp = select_hyperparams(train_pairs, xi_e_mode) if "kappa_full" in methods else None
-
+    for tr, te in rskf.split(idx, blocks):
+        train_pairs = [eval_pairs[i] for i in tr]
+        test_pairs = [eval_pairs[i] for i in te]
+        test_sizes.append(len(test_pairs)); train_sizes.append(len(train_pairs))
+        hp_gated = hp_nogate = None
+        if "kappa_full" in methods:
+            hp_gated = select_hyperparams(train_pairs, xi_e_mode, allow_gates=True)
+        if "kappa_nogate" in methods:
+            hp_nogate = select_hyperparams(train_pairs, xi_e_mode, allow_gates=False)
         for m in methods:
             ctx = {"rng": np.random.default_rng(rng.integers(1 << 30)),
-                   "hp": hp, "xi_e_mode": xi_e_mode}
+                   "hp_gated": hp_gated, "hp_nogate": hp_nogate,
+                   "xi_e_mode": xi_e_mode}
             if axes is not None:
                 ctx["axes"] = axes
-            ctx.update(ctx_persistent[m])  # share N1 coords across folds
+            ctx.update(persistent[m])
             h1 = h3 = hn = 0
             for p in test_pairs:
                 ranked = METHODS[m](p["source"], p["pool"], ctx)
-                acc_set = set(p["accepted"])
-                t1 = topk_hit(ranked, acc_set, 1)
-                t3 = topk_hit(ranked, acc_set, 3)
-                nh = near_hit(ranked[0], acc_set)
-                h1 += t1; h3 += t3; hn += nh
+                acc = set(p["accepted"])
+                t1 = topk_hit(ranked, acc, 1)
+                h1 += t1; h3 += topk_hit(ranked, acc, 3); hn += near_hit(ranked[0], acc)
                 pair_hits[m][p["pair_id"]].append(t1)
                 if collect_misses and m == "kappa_full" and not t1:
                     pred = ranked[0]
-                    _, axisgap = kappa_rank(p["source"], p["pool"], KAPPA_AXES,
-                                            hp["weights"], xi_e_mode=xi_e_mode,
-                                            gates=hp["gates"], return_axisgap=True)
-                    gaps = axisgap[pred]
+                    _, ag = kappa_rank(p["source"], p["pool"], KAPPA_AXES,
+                                       hp_gated["weights"], xi_e_mode,
+                                       gates=hp_gated["gates"], return_axisgap=True)
+                    g = ag[pred]
                     misses.append({
-                        "pair_id": p["pair_id"], "source": p["source"],
-                        "predicted": pred, "accepted_set": "|".join(p["accepted"]),
+                        "pair_id": p["pair_id"], "source": p["source"], "predicted": pred,
+                        "accepted_set": "|".join(p["accepted"]),
                         "same_group": int(any(EL[a]["group"] == EL[pred]["group"]
                                               for a in p["accepted"])),
                         "delta_ionic_radius_pm": round(min(abs(radius_of(a) -
-                                                    radius_of(pred)) for a in p["accepted"]), 1),
-                        "axis_of_max_disagreement": max(gaps, key=gaps.get),
-                        "candidate_pool_size": len(p["pool"]),
-                    })
+                                                radius_of(pred)) for a in p["accepted"]), 1),
+                        "axis_of_max_disagreement": max(g, key=g.get),
+                        "candidate_pool_size": len(p["pool"])})
             n = len(test_pairs)
-            fold_acc[m].append(h1 / n)
-            fold_acc3[m].append(h3 / n)
-            fold_near[m].append(hn / n)
-            # persist N1 coords
+            fold_acc[m].append(h1 / n); fold_acc3[m].append(h3 / n); fold_near[m].append(hn / n)
             if m == "N1_random_coords" and "_n1coords" in ctx:
-                ctx_persistent[m]["_n1coords"] = ctx["_n1coords"]
-
-    return fold_acc, fold_acc3, fold_near, pair_hits, misses
+                persistent[m]["_n1coords"] = ctx["_n1coords"]
+    meta = {"n_test": float(np.mean(test_sizes)), "n_train": float(np.mean(train_sizes))}
+    return fold_acc, fold_acc3, fold_near, pair_hits, misses, meta
 
 
 # ---------------------------------------------------------------------------
-# Statistics (§6)
+# Statistics (§6) -- Nadeau-Bengio corrected resampled t-test (Fix 3)
 # ---------------------------------------------------------------------------
-def bootstrap_ci_mean(per_pair_rate, n=N_BOOT, seed=SEED):
-    """Bootstrap CI on the mean per-pair top-1 rate (resample pairs)."""
-    rng = np.random.default_rng(seed)
-    arr = np.array(per_pair_rate, dtype=float)
-    if len(arr) == 0:
-        return (0.0, 0.0, 0.0)
-    idx = rng.integers(0, len(arr), size=(n, len(arr)))
-    means = arr[idx].mean(axis=1)
-    return float(arr.mean()), float(np.percentile(means, 2.5)), float(np.percentile(means, 97.5))
+def nb_corrected(diffs, n_train, n_test, alpha=ALPHA, power=POWER):
+    """Nadeau-Bengio variance-corrected paired t on per-fold differences.
+    Returns mean, (ci_lo, ci_hi), t, p, se, MDE."""
+    d = np.asarray(diffs, float)
+    J = len(d)
+    mean = float(d.mean())
+    var = float(d.var(ddof=1))
+    corr = (1.0 / J) + (n_test / n_train)        # NB correction factor
+    se = math.sqrt(corr * var) if var > 0 else 0.0
+    df = J - 1
+    tcrit = tdist.ppf(1 - alpha / 2, df)
+    ci = (mean - tcrit * se, mean + tcrit * se)
+    if se > 0:
+        tstat = mean / se
+        p = float(2 * tdist.sf(abs(tstat), df))
+    else:
+        tstat, p = 0.0, 1.0
+    tbeta = tdist.ppf(power, df)
+    mde = (tcrit + tbeta) * se                    # min detectable effect @ power
+    return mean, ci, float(tstat), p, se, float(mde)
 
-
-def paired_bootstrap_diff(rate_a, rate_b, n=N_BOOT, seed=SEED):
-    """Paired bootstrap CI on mean(a-b) over pairs (same pairs both methods)."""
-    rng = np.random.default_rng(seed + 7)
-    a = np.array(rate_a, dtype=float); b = np.array(rate_b, dtype=float)
-    diff = a - b
-    idx = rng.integers(0, len(diff), size=(n, len(diff)))
-    means = diff[idx].mean(axis=1)
-    return float(diff.mean()), float(np.percentile(means, 2.5)), float(np.percentile(means, 97.5))
-
+def bootstrap_ci_mean(rates, n=N_BOOT, seed=SEED):
+    rng = np.random.default_rng(seed); a = np.asarray(rates, float)
+    if len(a) == 0:
+        return 0.0, 0.0, 0.0
+    means = a[rng.integers(0, len(a), size=(n, len(a)))].mean(axis=1)
+    return float(a.mean()), float(np.percentile(means, 2.5)), float(np.percentile(means, 97.5))
 
 def mcnemar(bin_a, bin_b):
-    """McNemar on paired binary correctness. Returns (b01, b10, p, odds_ratio)."""
-    from scipy.stats import binomtest
-    b01 = sum(1 for x, y in zip(bin_a, bin_b) if x == 0 and y == 1)  # b better
-    b10 = sum(1 for x, y in zip(bin_a, bin_b) if x == 1 and y == 0)  # a better
+    b01 = sum(1 for x, y in zip(bin_a, bin_b) if x == 0 and y == 1)
+    b10 = sum(1 for x, y in zip(bin_a, bin_b) if x == 1 and y == 0)
     nd = b01 + b10
-    if nd == 0:
-        return b01, b10, 1.0, 1.0
-    p = binomtest(min(b01, b10), nd, 0.5).pvalue
-    odds = (b10 + 0.5) / (b01 + 0.5)   # a-over-b odds (Haldane correction)
-    return b01, b10, float(p), float(odds)
+    p = 1.0 if nd == 0 else float(binomtest(min(b01, b10), nd, 0.5).pvalue)
+    odds = (b10 + 0.5) / (b01 + 0.5)
+    return b01, b10, p, float(odds)
 
-
-def per_pair_rate(pair_hits_method, pair_ids):
-    """Mean held-out top-1 hit per pair (fractional for kappa_full)."""
-    return [float(np.mean(pair_hits_method[pid])) if pair_hits_method[pid] else 0.0
-            for pid in pair_ids]
-
-
-def per_pair_binary(pair_hits_method, pair_ids):
-    """Majority held-out correctness per pair (for McNemar)."""
-    return [int(np.mean(pair_hits_method[pid]) >= 0.5) if pair_hits_method[pid] else 0
-            for pid in pair_ids]
+def per_pair_rate(ph_m, ids):
+    return [float(np.mean(ph_m[i])) if ph_m[i] else 0.0 for i in ids]
+def per_pair_binary(ph_m, ids):
+    return [int(np.mean(ph_m[i]) >= 0.5) if ph_m[i] else 0 for i in ids]
 
 
 # ---------------------------------------------------------------------------
-# Controls (§7) -- run FIRST
+# Controls (§7)
 # ---------------------------------------------------------------------------
-def chance_floor(eval_pairs):
-    sizes = [len(p["pool"]) for p in eval_pairs]
-    return float(np.mean([1.0 / s for s in sizes]))
+def chance_floor(pairs):
+    return float(np.mean([1.0 / len(p["pool"]) for p in pairs]))
 
-
-def run_controls(eval_pairs):
-    rows = []
-    chance = chance_floor(eval_pairs)
-    rows.append(("chance_floor", chance, "1/mean(pool size)"))
-
-    # N2 random pick (analytic expectation + MC), N1 random coords
-    n2_exp = float(np.mean([sum(1 for a in p["accepted"] if a in p["pool"]) /
-                            len(p["pool"]) for p in eval_pairs]))
-    rows.append(("N2_random_pick_expected", n2_exp, "E[|accepted∩pool|/|pool|]"))
-
-    fa, _, _, ph, _ = run_cv(eval_pairs, methods=["N1_random_coords", "N2_random_pick"])
+def run_controls(pairs, tag):
+    rows, chance = [], chance_floor(pairs)
+    rows.append((f"{tag}:chance_floor", chance, "1/mean(pool size)"))
+    rows.append((f"{tag}:N2_expected",
+                 float(np.mean([sum(1 for a in p["accepted"] if a in p["pool"]) /
+                                len(p["pool"]) for p in pairs])), "E[|acc∩pool|/|pool|]"))
+    fa, *_ = run_cv(pairs, methods=["N1_random_coords", "N2_random_pick"])
     for m in ["N1_random_coords", "N2_random_pick"]:
-        rows.append((m + "_top1_mean", float(np.mean(fa[m])), "CV mean top-1"))
-
-    # Label permutation: shuffle accepted across pairs, rerun EVERY method.
+        rows.append((f"{tag}:{m}_top1", float(np.mean(fa[m])), "CV mean top-1"))
     rng = np.random.default_rng(SEED + 99)
-    perm_methods = ["kappa_full", "B3_IE", "B5_multifeature", "B0_same_group"]
-    n_perms = 5
-    perm_acc = {m: [] for m in perm_methods}
-    for _ in range(n_perms):
-        shuffled = [dict(p) for p in eval_pairs]
-        accs = [p["accepted"] for p in eval_pairs]
-        order = rng.permutation(len(accs))
-        for p, j in zip(shuffled, order):
+    pm = ["kappa_full", "B3_IE", "B5_star", "B0_same_group"]
+    acc = {m: [] for m in pm}
+    for _ in range(5):
+        sh = [dict(p) for p in pairs]
+        accs = [p["accepted"] for p in pairs]
+        for p, j in zip(sh, rng.permutation(len(accs))):
             p["accepted"] = accs[j]
-            p["in_pool"] = any(a in p["pool"] for a in p["accepted"])
-        fa2, _, _, _, _ = run_cv(shuffled, methods=perm_methods, seed=SEED + 1)
-        for m in perm_methods:
-            perm_acc[m].append(float(np.mean(fa2[m])))
-    for m in perm_methods:
-        rows.append(("label_perm_" + m + "_top1", float(np.mean(perm_acc[m])),
-                     f"mean over {n_perms} permutations (expect ≈ chance)"))
+        fa2, *_ = run_cv(sh, methods=pm, seed=SEED + 1)
+        for m in pm:
+            acc[m].append(float(np.mean(fa2[m])))
+    for m in pm:
+        rows.append((f"{tag}:label_perm_{m}", float(np.mean(acc[m])),
+                     "mean/5 perms (expect ≈ chance)"))
     return rows, chance
 
 
 # ---------------------------------------------------------------------------
 # Ablations (§8)
 # ---------------------------------------------------------------------------
-def run_ablations(eval_pairs):
+def run_ablations(pairs):
     rows = []
-    # Polarizability vs alpha vs rawIE for xi_e (kappa_5D, equal weight, isolates axis def)
     for mode, label in [("alpha", "xi_e=IE*alpha_fs (14-15 default)"),
                         ("rawIE", "xi_e=IE (alpha removed by normalization)"),
                         ("poly",  "xi_e=IE/polarizability (12-13 form)")]:
-        fa, _, _, _, _ = run_cv(eval_pairs, methods=["kappa_5D"], xi_e_mode=mode)
+        fa, *_ = run_cv(pairs, methods=["kappa_5D"], xi_e_mode=mode)
         rows.append(("xi_e_def:" + mode, label, float(np.mean(fa["kappa_5D"]))))
-
-    # Drop-one-axis for kappa_full (equal-weight 5D as reference, drop each)
-    fa_full, _, _, _, _ = run_cv(eval_pairs, methods=["kappa_5D"])
-    ref = float(np.mean(fa_full["kappa_5D"]))
+    fa_ref, *_ = run_cv(pairs, methods=["kappa_5D"])
+    ref = float(np.mean(fa_ref["kappa_5D"]))
     rows.append(("dropaxis:none(5D ref)", "all 5 axes equal weight", ref))
     for drop in KAPPA_AXES:
         axes = [a for a in KAPPA_AXES if a != drop]
-        def make(axes):
-            return lambda source, pool, ctx: kappa_rank(
-                source, pool, axes, {a: 1.0 for a in axes},
-                xi_e_mode=ctx.get("xi_e_mode", "alpha"))
-        METHODS["_tmp_drop"] = make(axes)
-        fa, _, _, _, _ = run_cv(eval_pairs, methods=["_tmp_drop"])
-        acc = float(np.mean(fa["_tmp_drop"]))
+        METHODS["_tmp"] = (lambda axes: lambda s, p, ctx: kappa_rank(
+            s, p, axes, {a: 1.0 for a in axes}, ctx.get("xi_e_mode", "alpha")))(axes)
+        fa, *_ = run_cv(pairs, methods=["_tmp"])
+        acc = float(np.mean(fa["_tmp"]))
         rows.append(("dropaxis:" + drop, f"Δacc vs 5D = {acc-ref:+.3f}", acc))
-        del METHODS["_tmp_drop"]
+        del METHODS["_tmp"]
     return rows
+
+
+# ---------------------------------------------------------------------------
+# Summaries
+# ---------------------------------------------------------------------------
+def summarize(pairs, methods, collect_misses=False, tag=""):
+    ids = [p["pair_id"] for p in pairs]
+    fa, fa3, fn, ph, misses, meta = run_cv(pairs, methods=methods,
+                                           collect_misses=collect_misses)
+    summ = {}
+    for m in methods:
+        mean, lo, hi = bootstrap_ci_mean(per_pair_rate(ph[m], ids))
+        summ[m] = {"top1_mean": float(np.mean(fa[m])), "top1_std": float(np.std(fa[m])),
+                   "boot_lo": lo, "boot_hi": hi, "top3_mean": float(np.mean(fa3[m])),
+                   "nearhit_mean": float(np.mean(fn[m])), "fold_acc": fa[m]}
+    return summ, ph, ids, misses, meta
+
+
+def paired_table(summ, ph, ids, meta, ref="kappa_full"):
+    rows = []
+    ref_bin = per_pair_binary(ph[ref], ids)
+    for b in BASELINES:
+        diffs = [summ[ref]["fold_acc"][j] - summ[b]["fold_acc"][j]
+                 for j in range(len(summ[ref]["fold_acc"]))]
+        mean, ci, tstat, p, se, mde = nb_corrected(diffs, meta["n_train"], meta["n_test"])
+        b01, b10, mp, odds = mcnemar(ref_bin, per_pair_binary(ph[b], ids))
+        rows.append({"baseline": b, "mean_diff": mean, "ci_lo": ci[0], "ci_hi": ci[1],
+                     "t": tstat, "nb_p": p, "mde": mde, "mcnemar_p": mp, "odds": odds,
+                     "ci_excl0": ci[0] > 0})
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# Verdict v2 (§9 / Fix 5)
+# ---------------------------------------------------------------------------
+def decide(summ, paired, controls_ok):
+    if not controls_ok:
+        return "INVALID", "Controls did not collapse to chance — harness leaks (§7)."
+    pr = {r["baseline"]: r for r in paired}
+    kf = summ["kappa_full"]["top1_mean"]
+    bstar = pr["B5_star"]
+    b3 = pr["B3_IE"]
+    beats_floor = (kf > summ["B0_same_group"]["top1_mean"]
+                   and kf > summ["B1_mendeleev"]["top1_mean"])
+    margin_pp = bstar["mean_diff"] * 100
+    mde_pp = bstar["mde"] * 100
+
+    # FAIL: indistinguishable from IE, or below periodic floor
+    if (not beats_floor) or (not b3["ci_excl0"] and b3["mean_diff"] * 100 < MARGIN_PP):
+        return "FAIL", ("kappa_full does not clear the periodic floor (B0/B1) or is "
+                        "not separated from B3_IE (NB CI %s 0, Δ=%.1fpp). κ ≈ "
+                        "ionization energy / ≈ periodic position." %
+                        ("excludes" if b3["ci_excl0"] else "includes", b3["mean_diff"]*100))
+    # PASS: beats B5_star (geometry) with CI excluding 0 and ≥ margin
+    if bstar["ci_excl0"] and margin_pp >= MARGIN_PP:
+        return "PASS", ("kappa_full beats B5_star (identical raw inputs) by %.1fpp, "
+                        "NB CI excludes 0, clears the floor and B3_IE. κ's *geometry* "
+                        "recovers expert substitution beyond standard descriptors." % margin_pp)
+    # No demonstrated edge over B5_star -> PARTIAL only if adequately powered
+    if mde_pp <= MARGIN_PP:
+        return "PARTIAL", ("kappa_full ≈ B5_star (Δ=%.1fpp, NB CI includes 0) and the "
+                           "test was POWERED to detect %.0fpp (MDE=%.1fpp). Demonstrated "
+                           "equivalence: κ adds no geometry over a z-scored NN on its own "
+                           "raw inputs, while still beating single-descriptor baselines. "
+                           "Drop \"predicts\"." % (margin_pp, MARGIN_PP, mde_pp))
+    return "INCONCLUSIVE", ("kappa_full vs B5_star Δ=%.1fpp, NB CI includes 0, but MDE="
+                            "%.1fpp > %.0fpp target — UNDERPOWERED. Cannot distinguish "
+                            "equivalence from an undetected edge. Need a larger fresh set "
+                            "(this is a null of detection, not a demonstrated equivalence)."
+                            % (margin_pp, mde_pp, MARGIN_PP))
 
 
 # ---------------------------------------------------------------------------
 # Orchestration + deliverables (§11)
 # ---------------------------------------------------------------------------
-def main():
-    os.makedirs(RESULTS, exist_ok=True)
-    annotated = annotate_pairs(PAIRS_ALL)
-
-    # scoreability / sourcing breakdown
-    sourced = [p for p in annotated if p["sourced"]]
-    primary = [p for p in sourced if p["in_pool"]]          # PRIMARY metric set
-    excl_unsourced = [p for p in annotated if not p["sourced"]]
-    excl_outpool = [p for p in sourced if not p["in_pool"]]
-
-    print("=" * 70)
-    print(f"Total pairs           : {len(annotated)}")
-    print(f"  sourced=True        : {len(sourced)}")
-    print(f"  -> in-pool (PRIMARY): {len(primary)}")
-    print(f"  -> out-of-pool (excl, same-block harness): {len(excl_outpool)} "
-          f"[{', '.join(p['pair_id']+':'+p['source']+'->'+'|'.join(p['accepted']) for p in excl_outpool)}]")
-    print(f"  sourced=False (excl): {len(excl_unsourced)} "
-          f"[{', '.join(p['pair_id'] for p in excl_unsourced)}]")
-    print("=" * 70)
-
-    pair_ids = [p["pair_id"] for p in primary]
-
-    # ---- CONTROLS FIRST (§7) ----
-    print("\n[1/4] Negative controls (must pass before any §5 result counts)...")
-    ctrl_rows, chance = run_controls(primary)
-    for name, val, note in ctrl_rows:
-        print(f"   {name:42s} {val:7.4f}   {note}")
-    with open(os.path.join(RESULTS, "controls.csv"), "w", newline="") as f:
-        w = csv.writer(f); w.writerow(["control", "value", "note"])
-        for r in ctrl_rows:
-            w.writerow([r[0], f"{r[1]:.4f}", r[2]])
-
-    # control gate: permutation & randoms must be within ~2x chance
-    controls_ok = True
-    for name, val, _ in ctrl_rows:
-        if name.startswith("label_perm_") or name.startswith("N1_") or \
-           name in ("N2_random_pick_top1_mean",):
-            if val > 2.0 * chance + 0.02:
-                controls_ok = False
-    print(f"   --> controls {'PASS' if controls_ok else 'FAIL (harness leak!)'} "
-          f"(chance floor = {chance:.4f})")
-
-    # ---- MAIN CV (§5) ----
-    print("\n[2/4] Main cross-validated evaluation (RepeatedStratifiedKFold 5x10)...")
-    methods = list(METHODS.keys())
-    fa, fa3, fnear, ph, misses = run_cv(primary, methods=methods, collect_misses=True)
-
-    rates = {m: per_pair_rate(ph[m], pair_ids) for m in methods}
-    summary = {}
-    for m in methods:
-        mean, lo, hi = bootstrap_ci_mean(rates[m])
-        summary[m] = {
-            "top1_mean": float(np.mean(fa[m])), "top1_std": float(np.std(fa[m])),
-            "top1_ci_lo": lo, "top1_ci_hi": hi,
-            "top3_mean": float(np.mean(fa3[m])),
-            "nearhit_mean": float(np.mean(fnear[m])),
-        }
-    with open(os.path.join(RESULTS, "results_summary.csv"), "w", newline="") as f:
-        w = csv.writer(f)
-        w.writerow(["method", "top1_mean", "top1_std", "top1_ci_lo",
-                    "top1_ci_hi", "top3_mean", "nearhit_mean"])
-        for m in methods:
-            s = summary[m]
-            w.writerow([m, f"{s['top1_mean']:.4f}", f"{s['top1_std']:.4f}",
-                        f"{s['top1_ci_lo']:.4f}", f"{s['top1_ci_hi']:.4f}",
-                        f"{s['top3_mean']:.4f}", f"{s['nearhit_mean']:.4f}"])
-    print(f"   {'method':22s} {'top1':>7s} {'95%CI':>16s} {'top3':>7s} {'near':>7s}")
-    for m in methods:
-        s = summary[m]
-        print(f"   {m:22s} {s['top1_mean']:7.3f} "
-              f"[{s['top1_ci_lo']:.3f},{s['top1_ci_hi']:.3f}] "
+def fmt_summary_print(summ, order):
+    print(f"   {'method':22s} {'top1':>7s} {'boot95%CI':>16s} {'top3':>7s} {'near':>7s}")
+    for m in order:
+        s = summ[m]
+        print(f"   {m:22s} {s['top1_mean']:7.3f} [{s['boot_lo']:.3f},{s['boot_hi']:.3f}] "
               f"{s['top3_mean']:7.3f} {s['nearhit_mean']:7.3f}")
 
-    # ---- PAIRED STATS (§6): kappa_full vs every baseline ----
-    print("\n[3/4] Paired statistics (kappa_full vs baselines)...")
-    kf_rate = rates["kappa_full"]
-    kf_bin = per_pair_binary(ph["kappa_full"], pair_ids)
-    paired_rows = []
-    for b in BASELINES:
-        d, lo, hi = paired_bootstrap_diff(kf_rate, rates[b])
-        b_bin = per_pair_binary(ph[b], pair_ids)
-        b01, b10, p, odds = mcnemar(kf_bin, b_bin)
-        win = "yes" if lo > 0 else "no"
-        paired_rows.append([b, f"{d:+.4f}", f"{lo:+.4f}", f"{hi:+.4f}",
-                            f"{p:.4f}", f"{odds:.3f}", b10, b01, win])
-        print(f"   kappa_full - {b:22s} Δ={d:+.3f} CI[{lo:+.3f},{hi:+.3f}] "
-              f"McNemar p={p:.3f} OR={odds:.2f} CIexcl0={win}")
+def main():
+    os.makedirs(RESULTS, exist_ok=True)
+    dev = annotate_pairs(load_pairs("substitution_pairs.csv"))
+    fresh = annotate_pairs(load_pairs("substitution_pairs_fresh.csv"))
+    dev_p, fresh_p = primary_subset(dev), primary_subset(fresh)
+    methods = list(METHODS.keys())
+    order = ["kappa_full", "kappa_nogate", "kappa_5D", "kappa_2D"] + BASELINES + \
+            ["N1_random_coords", "N2_random_pick"]
+
+    print("=" * 74)
+    print(f"DEV set   : {len(dev)} pairs -> primary (sourced & in-pool) = {len(dev_p)} "
+          f"[NON-DECISIVE]")
+    print(f"FRESH set : {len(fresh)} pairs -> primary = {len(fresh_p)} [VERDICT]")
+    print("=" * 74)
+
+    # --- CONTROLS FIRST on the verdict (fresh) set (§7) ---
+    print("\n[1/6] Controls on FRESH set (must pass before any verdict)...")
+    ctrl_rows, chance = run_controls(fresh_p, "fresh")
+    for n, v, note in ctrl_rows:
+        print(f"   {n:34s} {v:7.4f}  {note}")
+    controls_ok = all(v <= 2.0 * chance + 0.02 for n, v, _ in ctrl_rows
+                      if ("label_perm" in n or "N1_random" in n or "N2_random_pick_top1" in n))
+    print(f"   --> controls {'PASS' if controls_ok else 'FAIL (leak)'} (chance={chance:.4f})")
+
+    # --- DEV evaluation (reported, non-decisive) ---
+    print("\n[2/6] DEV-set evaluation (development; NON-DECISIVE)...")
+    dev_summ, *_ = summarize(dev_p, methods)
+    fmt_summary_print(dev_summ, order)
+
+    # --- FRESH evaluation (VERDICT) ---
+    print("\n[3/6] FRESH-set evaluation (VERDICT, same-block pool)...")
+    fresh_summ, fresh_ph, fresh_ids, misses, meta = summarize(
+        fresh_p, methods, collect_misses=True)
+    fmt_summary_print(fresh_summ, order)
+
+    # --- PAIRED STATS (Nadeau-Bengio) on FRESH ---
+    print("\n[4/6] Paired NB-corrected stats on FRESH (kappa_full vs baselines)...")
+    paired = paired_table(fresh_summ, fresh_ph, fresh_ids, meta, ref="kappa_full")
+    for r in paired:
+        print(f"   vs {r['baseline']:20s} Δ={r['mean_diff']*100:+5.1f}pp "
+              f"NBci[{r['ci_lo']*100:+5.1f},{r['ci_hi']*100:+5.1f}] p={r['nb_p']:.3f} "
+              f"MDE={r['mde']*100:4.1f}pp excl0={r['ci_excl0']} (McN p={r['mcnemar_p']:.3f})")
+    # gated vs ungated
+    gd = fresh_summ["kappa_full"]["top1_mean"] - fresh_summ["kappa_nogate"]["top1_mean"]
+    print(f"   gated−ungated κ Δ={gd*100:+.1f}pp  (≈0 ⇒ gates were inert/overfit patches)")
+
+    # --- POOL SENSITIVITY (Fix 4): full-table pool on same fresh pairs ---
+    print("\n[5/6] Pool sensitivity: full-table pool on FRESH primary pairs...")
+    fresh_full = annotate_pairs(
+        [p for p in load_pairs("substitution_pairs_fresh.csv")
+         if (p["source"], p["application"]) in
+         {(q["source"], q["application"]) for q in fresh_p}], mode="full")
+    full_summ, full_ph, full_ids, _, full_meta = summarize(
+        fresh_full, ["kappa_full", "B5_star", "B3_IE", "B0_same_group"])
+    fp = paired_table(full_summ, full_ph, full_ids, full_meta, ref="kappa_full")
+    fp_star = next(r for r in fp if r["baseline"] == "B5_star")
+    print(f"   full-pool chance={chance_floor(fresh_full):.4f}  "
+          f"kappa_full={full_summ['kappa_full']['top1_mean']:.3f}  "
+          f"B5_star={full_summ['B5_star']['top1_mean']:.3f}  "
+          f"Δ={fp_star['mean_diff']*100:+.1f}pp NBci"
+          f"[{fp_star['ci_lo']*100:+.1f},{fp_star['ci_hi']*100:+.1f}] excl0={fp_star['ci_excl0']}")
+
+    # --- ABLATIONS on FRESH (§8) ---
+    print("\n[6/6] Ablations on FRESH...")
+    abl = run_ablations(fresh_p)
+    for n, note, v in abl:
+        print(f"   {n:28s} {v:7.3f}  {note}")
+
+    # --- VERDICT ---
+    verdict, reason = decide(fresh_summ, paired, controls_ok)
+
+    # --- write deliverables ---
+    write_all(dev_summ, fresh_summ, paired, fp_star, full_summ, abl, ctrl_rows,
+              chance, controls_ok, verdict, reason, misses, gd, meta,
+              dev, fresh, dev_p, fresh_p, order)
+    print("\n" + "=" * 74)
+    print(f"VERDICT (FRESH held-out set): {verdict}")
+    print(reason)
+    print("=" * 74)
+
+
+def write_all(dev_summ, fresh_summ, paired, fp_star, full_summ, abl, ctrl_rows,
+              chance, controls_ok, verdict, reason, misses, gd, meta,
+              dev, fresh, dev_p, fresh_p, order):
+    # results_summary.csv (fresh = verdict; dev columns prefixed)
+    with open(os.path.join(RESULTS, "results_summary.csv"), "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["method", "fresh_top1_mean", "fresh_top1_std", "fresh_boot_lo",
+                    "fresh_boot_hi", "fresh_top3_mean", "fresh_nearhit_mean",
+                    "dev_top1_mean"])
+        for m in order:
+            s, d = fresh_summ[m], dev_summ[m]
+            w.writerow([m, f"{s['top1_mean']:.4f}", f"{s['top1_std']:.4f}",
+                        f"{s['boot_lo']:.4f}", f"{s['boot_hi']:.4f}",
+                        f"{s['top3_mean']:.4f}", f"{s['nearhit_mean']:.4f}",
+                        f"{d['top1_mean']:.4f}"])
+    # paired_stats.csv
     with open(os.path.join(RESULTS, "paired_stats.csv"), "w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["baseline", "mean_diff(kappa_full-baseline)", "ci_lo", "ci_hi",
-                    "mcnemar_p", "odds_ratio(kf/base)", "kf_only_correct",
-                    "base_only_correct", "kf_wins_ci_excl_0"])
-        w.writerows(paired_rows)
-
-    # ---- ABLATIONS (§8) ----
-    print("\n[4/4] Ablations...")
-    abl_rows = run_ablations(primary)
-    for name, note, val in abl_rows:
-        print(f"   {name:30s} {val:7.3f}   {note}")
+        w.writerow(["baseline", "mean_diff", "nb_ci_lo", "nb_ci_hi", "nb_t",
+                    "nb_p", "mde", "mcnemar_p_sidebar", "odds_ratio", "ci_excl_0"])
+        for r in paired:
+            w.writerow([r["baseline"], f"{r['mean_diff']:.4f}", f"{r['ci_lo']:.4f}",
+                        f"{r['ci_hi']:.4f}", f"{r['t']:.3f}", f"{r['nb_p']:.4f}",
+                        f"{r['mde']:.4f}", f"{r['mcnemar_p']:.4f}", f"{r['odds']:.3f}",
+                        r["ci_excl0"]])
+    # controls.csv
+    with open(os.path.join(RESULTS, "controls.csv"), "w", newline="") as f:
+        w = csv.writer(f); w.writerow(["control", "value", "note"])
+        for n, v, note in ctrl_rows:
+            w.writerow([n, f"{v:.4f}", note])
+    # ablations.csv
     with open(os.path.join(RESULTS, "ablations.csv"), "w", newline="") as f:
         w = csv.writer(f); w.writerow(["ablation", "top1_mean", "note"])
-        for name, note, val in abl_rows:
-            w.writerow([name, f"{val:.4f}", note])
-
-    # ---- MISSES (§10) ----
+        for n, note, v in abl:
+            w.writerow([n, f"{v:.4f}", note])
+    # misses.csv (fresh)
     agg = {}
-    for mrow in misses:
-        agg.setdefault(mrow["pair_id"], mrow)  # one row per pair (stable)
+    for mr in misses:
+        agg.setdefault(mr["pair_id"], mr)
     with open(os.path.join(RESULTS, "misses.csv"), "w", newline="") as f:
         cols = ["pair_id", "source", "predicted", "accepted_set", "same_group",
-                "delta_ionic_radius_pm", "axis_of_max_disagreement",
-                "candidate_pool_size"]
+                "delta_ionic_radius_pm", "axis_of_max_disagreement", "candidate_pool_size"]
         w = csv.writer(f); w.writerow(cols)
         for pid in sorted(agg):
             w.writerow([agg[pid][c] for c in cols])
-
-    # ---- VERDICT (§9) ----
-    verdict, reason = decide_verdict(summary, paired_rows, controls_ok)
-    write_verdict(summary, paired_rows, abl_rows, ctrl_rows, chance,
-                  controls_ok, verdict, reason, primary, excl_outpool,
-                  excl_unsourced)
-    print("\n" + "=" * 70)
-    print(f"VERDICT: {verdict}")
-    print(reason)
-    print("=" * 70)
-
-
-def decide_verdict(summary, paired_rows, controls_ok):
-    if not controls_ok:
-        return "INVALID", ("Negative controls did not collapse to chance -- the "
-                           "harness leaks. No §5 result is interpretable (§7).")
-    pr = {row[0]: row for row in paired_rows}
-    def ci_excludes_0(b):
-        return float(pr[b][2]) > 0  # ci_lo > 0
-    kf = summary["kappa_full"]["top1_mean"]
-    beats_b0 = kf > summary["B0_same_group"]["top1_mean"]
-    beats_b1 = kf > summary["B1_mendeleev"]["top1_mean"]
-    beats_b3_ci = ci_excludes_0("B3_IE")
-    beats_b5_ci = ci_excludes_0("B5_multifeature")
-    b5_margin = (kf - summary["B5_multifeature"]["top1_mean"]) * 100
-
-    if beats_b3_ci and beats_b5_ci and beats_b0 and beats_b1 and b5_margin >= MARGIN_PP:
-        return "PASS", ("kappa_full beats B3_IE and B5_multifeature with paired CI "
-                        "excluding 0, clears the +5pp margin over B5, and beats "
-                        "B0/B1. κ recovers expert substitution judgments beyond "
-                        "standard descriptors.")
-    if kf > summary["B3_IE"]["top1_mean"] and kf > summary["B0_same_group"]["top1_mean"] \
-       and not (beats_b5_ci and b5_margin >= MARGIN_PP):
-        return "PARTIAL", ("kappa_full ≈ B5_multifeature (margin %.1fpp, CI %s 0) but "
-                           "exceeds single-descriptor / same-group floors. κ is a "
-                           "compact re-encoding of standard descriptors; no gain over "
-                           "a naive multi-feature NN. Drop \"predicts\"." %
-                           (b5_margin, "excludes" if beats_b5_ci else "includes"))
-    return "FAIL", ("kappa_full does not separate from B3_IE, or fails the "
-                    "B0/B1 floor. Substitution claim retired: κ ≈ ionization "
-                    "energy / ≈ periodic position.")
-
-
-def write_verdict(summary, paired_rows, abl_rows, ctrl_rows, chance,
-                  controls_ok, verdict, reason, primary, excl_outpool, excl_unsourced):
-    lines = []
-    lines.append("# Test A — Result & Verdict\n")
-    lines.append("_Generated by `run_testA.py` against the frozen data. The "
-                 "decision rule is the frozen §9 rule in `prereg.md`; no "
-                 "re-tuning was done to change this outcome._\n")
-    lines.append(f"\n**VERDICT: {verdict}**\n\n{reason}\n")
-    lines.append("\n## Scope actually evaluated\n")
-    lines.append(f"- Primary metric set (sourced & in-pool): **{len(primary)} pairs**\n")
-    lines.append(f"- Excluded, out-of-pool under the same-block harness "
-                 f"({len(excl_outpool)}): " +
-                 ", ".join(f"{p['pair_id']} {p['source']}→{'|'.join(p['accepted'])}"
-                           for p in excl_outpool) + "\n")
-    lines.append(f"- Excluded, sourced=False ({len(excl_unsourced)}): " +
-                 ", ".join(p["pair_id"] for p in excl_unsourced) + "\n")
-    lines.append(f"- Chance floor = 1/mean(pool size) = **{chance:.3f}**\n")
-    lines.append(f"- Negative controls: **{'PASS' if controls_ok else 'FAIL'}**\n")
-
-    lines.append("\n## Top-1 accuracy (mean over 50 held-out evals, 95% bootstrap CI)\n")
-    lines.append("| method | top-1 | 95% CI | top-3 | near-hit |\n|---|---|---|---|---|\n")
-    order = ["kappa_full", "kappa_5D", "kappa_2D"] + BASELINES + \
-            ["N1_random_coords", "N2_random_pick"]
+    # verdict.md
+    L = ["# Test A — Result & Verdict (v2, fresh held-out set)\n",
+         "_Verdict computed on the FRESH set by the frozen `prereg_v2.md` §9 rule. "
+         "Dev-set numbers are reported but NON-DECISIVE. No re-tuning._\n",
+         f"\n**VERDICT (fresh held-out): {verdict}**\n\n{reason}\n",
+         "\n## Scope\n",
+         f"- Fresh primary (sourced & in-pool): **{len(fresh_p)} pairs** — the verdict.\n",
+         f"- Dev primary (development, non-decisive): {len(dev_p)} pairs.\n",
+         f"- Chance floor (fresh, same-block) = **{chance:.3f}**; controls "
+         f"**{'PASS' if controls_ok else 'FAIL'}**.\n",
+         f"- Avg fold sizes: n_test≈{meta['n_test']:.1f}, n_train≈{meta['n_train']:.1f} "
+         f"(used in Nadeau–Bengio correction & MDE).\n",
+         "\n## Top-1 accuracy — FRESH (verdict) vs DEV (non-decisive)\n",
+         "| method | fresh top-1 | fresh boot95%CI | fresh top-3 | dev top-1 |\n|---|---|---|---|---|\n"]
     for m in order:
-        s = summary[m]
-        lines.append(f"| {m} | {s['top1_mean']:.3f} | "
-                     f"[{s['top1_ci_lo']:.3f}, {s['top1_ci_hi']:.3f}] | "
-                     f"{s['top3_mean']:.3f} | {s['nearhit_mean']:.3f} |\n")
-
-    lines.append("\n## kappa_full vs baselines (paired)\n")
-    lines.append("| baseline | Δ top-1 | paired 95% CI | McNemar p | OR (kf/base) | CI excl 0 |\n"
-                 "|---|---|---|---|---|---|\n")
-    for r in paired_rows:
-        lines.append(f"| {r[0]} | {r[1]} | [{r[2]}, {r[3]}] | {r[4]} | {r[5]} | {r[8]} |\n")
-
-    lines.append("\n## Ablations\n")
-    lines.append("| ablation | top-1 | note |\n|---|---|---|\n")
-    for name, note, val in abl_rows:
-        lines.append(f"| {name} | {val:.3f} | {note} |\n")
-
-    lines.append("\n## Controls\n")
-    lines.append("| control | value | note |\n|---|---|---|\n")
-    for name, val, note in ctrl_rows:
-        lines.append(f"| {name} | {val:.4f} | {note} |\n")
-
+        s, d = fresh_summ[m], dev_summ[m]
+        L.append(f"| {m} | {s['top1_mean']:.3f} | [{s['boot_lo']:.3f}, {s['boot_hi']:.3f}] "
+                 f"| {s['top3_mean']:.3f} | {d['top1_mean']:.3f} |\n")
+    L.append("\n## kappa_full vs baselines — FRESH, Nadeau–Bengio corrected (headline)\n")
+    L.append("| baseline | Δ top-1 | NB 95% CI | NB p | MDE | CI excl 0 | McNemar p (sidebar) |\n"
+             "|---|---|---|---|---|---|---|\n")
+    for r in paired:
+        L.append(f"| {r['baseline']} | {r['mean_diff']*100:+.1f}pp | "
+                 f"[{r['ci_lo']*100:+.1f}, {r['ci_hi']*100:+.1f}]pp | {r['nb_p']:.3f} | "
+                 f"{r['mde']*100:.1f}pp | {r['ci_excl0']} | {r['mcnemar_p']:.3f} |\n")
+    L.append(f"\n**Gated − un-gated κ = {gd*100:+.1f}pp** "
+             f"(≈0 ⇒ gates are inert/overfit patches, as predicted).\n")
+    L.append("\n## Pool sensitivity (Fix 4): full-table pool, same fresh pairs\n")
+    L.append(f"- kappa_full={full_summ['kappa_full']['top1_mean']:.3f}, "
+             f"B5_star={full_summ['B5_star']['top1_mean']:.3f}, "
+             f"Δ={fp_star['mean_diff']*100:+.1f}pp, NB CI "
+             f"[{fp_star['ci_lo']*100:+.1f}, {fp_star['ci_hi']*100:+.1f}]pp, "
+             f"excl 0 = {fp_star['ci_excl0']}. "
+             f"{'Edge survives pool change.' if fp_star['ci_excl0'] else 'No edge under either pool.'}\n")
+    L.append("\n## Ablations (fresh)\n| ablation | top-1 | note |\n|---|---|---|\n")
+    for n, note, v in abl:
+        L.append(f"| {n} | {v:.3f} | {note} |\n")
+    L.append("\n## Controls (fresh)\n| control | value | note |\n|---|---|---|\n")
+    for n, v, note in ctrl_rows:
+        L.append(f"| {n} | {v:.4f} | {note} |\n")
     with open(os.path.join(RESULTS, "verdict.md"), "w") as f:
-        f.write("".join(lines))
+        f.write("".join(L))
 
 
 if __name__ == "__main__":

@@ -1,0 +1,45 @@
+pair_id,source_symbol,accepted_substitutes,application,block,source_citation,sourced
+f01,Ru,Os,PGM hard alloy / electrode,d,USGS MCS Platinum-group metals,True
+f02,Os,Ru,PGM electrode / hard alloy,d,USGS MCS Platinum-group metals,True
+f03,Ir,Rh,crucible / spark electrode,d,USGS MCS Platinum-group metals,True
+f04,Rh,Ir,high-temp electrode,d,USGS MCS Platinum-group metals,True
+f05,Ag,Pd,MLCC inner electrode,d,EU CRM 2020 report,True
+f06,Pd,Ag,thick-film / dental,d,USGS MCS Platinum-group metals,True
+f07,Au,Ag,electrical contact,d,USGS MCS Gold,True
+f08,Ni,Fe,permalloy / soft magnetic,d,named review (soft magnetics),True
+f09,Cu,Ni,coinage / corrosion alloy,d,USGS MCS Copper,True
+f10,Fe,Ni,stainless / Invar alloy,d,USGS MCS Iron and Steel,True
+f11,W,Ta,refractory carbide,d,USGS MCS Tungsten,True
+f12,Mo,Cr,alloy steel,d,USGS MCS Molybdenum,True
+f13,Cr,Mo,alloy / corrosion resistance,d,USGS MCS Chromium,True
+f14,Nb,V,HSLA microalloying,d,USGS MCS Niobium,True
+f15,Hf,Ti,refractory / aerospace,d,USGS MCS Hafnium,True
+f16,Sc,Y,Al-alloy / oxide ceramic,d,USGS MCS Scandium,True
+f17,Y,Sc,structural ceramic / alloy,d,USGS MCS Yttrium,True
+f18,Re,Os,refractory catalyst,d,USGS MCS Rhenium,True
+f19,Fe,Mn,steel deoxidizer / alloy,d,USGS MCS Iron and Steel,True
+f20,Zr,Nb,reactor / superconductor alloy,d,USGS MCS Zirconium,True
+f21,Tb,Eu,green / red phosphor,f,EU CRM 2020 report,True
+f22,Sm,Gd,magnet / neutron absorber,f,USGS MCS Rare Earths,True
+f23,Pr,Ce,mischmetal / polishing,f,USGS MCS Rare Earths,True
+f24,La,Nd,NiMH anode / catalyst,f,USGS MCS Rare Earths,True
+f25,Dy,Ho,magnetostrictive dopant,f,named review (RE),True
+f26,Ho,Er,laser / dopant,f,named review (RE photonics),True
+f27,Tm,Er,fiber laser dopant,f,named review (RE photonics),True
+f28,Lu,Yb,scintillator / catalyst,f,named review (scintillators),True
+f29,Gd,Sm,neutron absorber / magnet,f,EU CRM 2020 report,True
+f30,Ce,Pr,mischmetal / catalyst,f,USGS MCS Rare Earths,True
+f31,Br,I,flame retardant / biocide,p,USGS MCS Bromine,True
+f32,Cl,Br,halogen disinfectant,p,named review (halogen chem),True
+f33,Sb,As,semiconductor / alloy hardener,p,USGS MCS Antimony,True
+f34,Bi,Sn,Pb-free solder / low-melt,p,EU CRM 2020 report,True
+f35,Pb,Sn,solder / radiation shielding,p,USGS MCS Lead,True
+f36,S,Se,vulcanization / semiconductor,p,named review (chalcogen),True
+f37,Al,Ga,compound-semiconductor host,p,EU CRM 2017 report,True
+f38,In,Sn,transparent-oxide / solder,p,USGS MCS Indium,True
+f39,Na,K,heat-transfer coolant,s,named review (liquid-metal),True
+f40,Ca,Sr,getter / alloy,s,USGS MCS Calcium,True
+f41,Sr,Ca,ferrite / alloy,s,USGS MCS Strontium,True
+f42,K,Rb,specialty chemical,s,USGS MCS Potash,True
+f43,Mg,Ca,reductant / alloy,s,USGS MCS Magnesium,True
+f44,Be,Mg,lightweight structural alloy,s,USGS MCS Beryllium,True

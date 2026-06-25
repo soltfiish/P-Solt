@@ -301,18 +301,88 @@ PAIRS = [
 ]
 # fmt: on
 
+# ---------------------------------------------------------------------------
+# FRESH held-out pair set  (Fix 1 of the handoff -- LOAD-BEARING).
+#
+# The set above (PAIRS) is DEMOTED to a development set: the 5 kappa axes and
+# the gate menu are a fixed design, but k-fold CV only holds out weight tuning,
+# not the axis/gate *design choices*. So the dev-set CV number is optimistically
+# biased and is reported as NON-DECISIVE.
+#
+# This FRESH set is the VERDICT set. It was assembled AFTER the axes + gates +
+# default xi_e definition were frozen (they are unchanged from the v1 commit),
+# from the same authoritative source categories, selected by sourcing quality
+# and same-block scoreability -- NOT by reference to kappa's dev-set behaviour.
+# Honesty limit (stated in prereg_v2.md): the assembler has seen the dev-set
+# misses, so this is not a perfectly kappa-naive extraction; the ideal is a
+# zero-kappa-exposure sourcer. Pairs are disjoint in (source, application) from
+# the dev set and span all four blocks.
+# ---------------------------------------------------------------------------
+# fmt: off
+FRESH_PAIRS = [
+    # d-block
+    ("f01", "Ru", "Os",      "PGM hard alloy / electrode",   "d", "USGS MCS Platinum-group metals", True),
+    ("f02", "Os", "Ru",      "PGM electrode / hard alloy",   "d", "USGS MCS Platinum-group metals", True),
+    ("f03", "Ir", "Rh",      "crucible / spark electrode",   "d", "USGS MCS Platinum-group metals", True),
+    ("f04", "Rh", "Ir",      "high-temp electrode",          "d", "USGS MCS Platinum-group metals", True),
+    ("f05", "Ag", "Pd",      "MLCC inner electrode",         "d", "EU CRM 2020 report", True),
+    ("f06", "Pd", "Ag",      "thick-film / dental",          "d", "USGS MCS Platinum-group metals", True),
+    ("f07", "Au", "Ag",      "electrical contact",           "d", "USGS MCS Gold", True),
+    ("f08", "Ni", "Fe",      "permalloy / soft magnetic",    "d", "named review (soft magnetics)", True),
+    ("f09", "Cu", "Ni",      "coinage / corrosion alloy",    "d", "USGS MCS Copper", True),
+    ("f10", "Fe", "Ni",      "stainless / Invar alloy",      "d", "USGS MCS Iron and Steel", True),
+    ("f11", "W",  "Ta",      "refractory carbide",           "d", "USGS MCS Tungsten", True),
+    ("f12", "Mo", "Cr",      "alloy steel",                  "d", "USGS MCS Molybdenum", True),
+    ("f13", "Cr", "Mo",      "alloy / corrosion resistance", "d", "USGS MCS Chromium", True),
+    ("f14", "Nb", "V",       "HSLA microalloying",           "d", "USGS MCS Niobium", True),
+    ("f15", "Hf", "Ti",      "refractory / aerospace",       "d", "USGS MCS Hafnium", True),
+    ("f16", "Sc", "Y",       "Al-alloy / oxide ceramic",     "d", "USGS MCS Scandium", True),
+    ("f17", "Y",  "Sc",      "structural ceramic / alloy",   "d", "USGS MCS Yttrium", True),
+    ("f18", "Re", "Os",      "refractory catalyst",          "d", "USGS MCS Rhenium", True),
+    ("f19", "Fe", "Mn",      "steel deoxidizer / alloy",     "d", "USGS MCS Iron and Steel", True),
+    ("f20", "Zr", "Nb",      "reactor / superconductor alloy","d", "USGS MCS Zirconium", True),
+    # f-block
+    ("f21", "Tb", "Eu",      "green / red phosphor",         "f", "EU CRM 2020 report", True),
+    ("f22", "Sm", "Gd",      "magnet / neutron absorber",    "f", "USGS MCS Rare Earths", True),
+    ("f23", "Pr", "Ce",      "mischmetal / polishing",       "f", "USGS MCS Rare Earths", True),
+    ("f24", "La", "Nd",      "NiMH anode / catalyst",        "f", "USGS MCS Rare Earths", True),
+    ("f25", "Dy", "Ho",      "magnetostrictive dopant",      "f", "named review (RE)", True),
+    ("f26", "Ho", "Er",      "laser / dopant",               "f", "named review (RE photonics)", True),
+    ("f27", "Tm", "Er",      "fiber laser dopant",           "f", "named review (RE photonics)", True),
+    ("f28", "Lu", "Yb",      "scintillator / catalyst",      "f", "named review (scintillators)", True),
+    ("f29", "Gd", "Sm",      "neutron absorber / magnet",    "f", "EU CRM 2020 report", True),
+    ("f30", "Ce", "Pr",      "mischmetal / catalyst",        "f", "USGS MCS Rare Earths", True),
+    # p-block
+    ("f31", "Br", "I",       "flame retardant / biocide",    "p", "USGS MCS Bromine", True),
+    ("f32", "Cl", "Br",      "halogen disinfectant",         "p", "named review (halogen chem)", True),
+    ("f33", "Sb", "As",      "semiconductor / alloy hardener","p", "USGS MCS Antimony", True),
+    ("f34", "Bi", "Sn",      "Pb-free solder / low-melt",    "p", "EU CRM 2020 report", True),
+    ("f35", "Pb", "Sn",      "solder / radiation shielding", "p", "USGS MCS Lead", True),
+    ("f36", "S",  "Se",      "vulcanization / semiconductor","p", "named review (chalcogen)", True),
+    ("f37", "Al", "Ga",      "compound-semiconductor host",  "p", "EU CRM 2017 report", True),
+    ("f38", "In", "Sn",      "transparent-oxide / solder",   "p", "USGS MCS Indium", True),
+    # s-block
+    ("f39", "Na", "K",       "heat-transfer coolant",        "s", "named review (liquid-metal)", True),
+    ("f40", "Ca", "Sr",      "getter / alloy",               "s", "USGS MCS Calcium", True),
+    ("f41", "Sr", "Ca",      "ferrite / alloy",              "s", "USGS MCS Strontium", True),
+    ("f42", "K",  "Rb",      "specialty chemical",           "s", "USGS MCS Potash", True),
+    ("f43", "Mg", "Ca",      "reductant / alloy",            "s", "USGS MCS Magnesium", True),
+    ("f44", "Be", "Mg",      "lightweight structural alloy", "s", "USGS MCS Beryllium", True),
+]
+# fmt: on
+
 PAIR_COLS = ["pair_id", "source_symbol", "accepted_substitutes",
              "application", "block", "source_citation", "sourced"]
 
 
-def write_pairs(path):
+def write_pairs(path, pairs):
     with open(path, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(PAIR_COLS)
-        for rec in PAIRS:
+        for rec in pairs:
             pid, src, acc, app, blk, cite, sourced = rec
             w.writerow([pid, src, acc, app, blk, cite, str(bool(sourced))])
-    return len(PAIRS)
+    return len(pairs)
 
 
 def sha256(path):
@@ -326,26 +396,37 @@ def sha256(path):
 def main():
     os.makedirs(DATA, exist_ok=True)
     ep = os.path.join(DATA, "element_properties.csv")
-    sp = os.path.join(DATA, "substitution_pairs.csv")
+    sp = os.path.join(DATA, "substitution_pairs.csv")            # dev set
+    fp = os.path.join(DATA, "substitution_pairs_fresh.csv")       # verdict set
     n_el = write_element_properties(ep)
-    n_pr = write_pairs(sp)
+    n_dev = write_pairs(sp, PAIRS)
+    n_fresh = write_pairs(fp, FRESH_PAIRS)
 
     # Validate every symbol referenced by pairs exists in properties.
     syms = {r["symbol"] for r in base_rows()}
     missing = set()
-    for rec in PAIRS:
+    for rec in PAIRS + FRESH_PAIRS:
         missing |= {s for s in ([rec[1]] + rec[2].split("|")) if s not in syms}
     if missing:
         raise SystemExit(f"ERROR: pairs reference unknown symbols: {sorted(missing)}")
+    # Guard: fresh (source, application) must be disjoint from dev.
+    dev_keys = {(r[1], r[3]) for r in PAIRS}
+    clash = {(r[1], r[3]) for r in FRESH_PAIRS} & dev_keys
+    if clash:
+        raise SystemExit(f"ERROR: fresh set overlaps dev (source,application): {sorted(clash)}")
 
     with open(os.path.join(DATA, "CHECKSUMS.txt"), "w") as f:
-        f.write(f"element_properties.csv  sha256  {sha256(ep)}\n")
-        f.write(f"substitution_pairs.csv  sha256  {sha256(sp)}\n")
+        f.write(f"element_properties.csv        sha256  {sha256(ep)}\n")
+        f.write(f"substitution_pairs.csv        sha256  {sha256(sp)}\n")
+        f.write(f"substitution_pairs_fresh.csv  sha256  {sha256(fp)}\n")
 
-    print(f"wrote {n_el} elements -> {ep}")
-    print(f"wrote {n_pr} pairs    -> {sp}")
-    print(f"  sourced=True pairs : {sum(1 for r in PAIRS if r[6])}")
-    print(f"  sourced=False pairs: {sum(1 for r in PAIRS if not r[6])}")
+    print(f"wrote {n_el} elements    -> {ep}")
+    print(f"wrote {n_dev} dev pairs   -> {sp}")
+    print(f"wrote {n_fresh} fresh pairs -> {fp}")
+    print(f"  dev   sourced=True: {sum(1 for r in PAIRS if r[6])}, "
+          f"False: {sum(1 for r in PAIRS if not r[6])}")
+    print(f"  fresh sourced=True: {sum(1 for r in FRESH_PAIRS if r[6])}, "
+          f"False: {sum(1 for r in FRESH_PAIRS if not r[6])}")
     with open(os.path.join(DATA, "CHECKSUMS.txt")) as f:
         print(f.read().strip())
 
