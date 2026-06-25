@@ -1,0 +1,2 @@
+element_properties.csv  sha256  758bbe276af350073ee1da65c990cd90bf6cb70f96f97e545def6a46e056824f
+substitution_pairs.csv  sha256  57c77d26545724b6e5378638ebaaeb902063ce3707fdcddfd1ba1f282c53fa96
